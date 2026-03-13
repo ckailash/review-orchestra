@@ -1,0 +1,273 @@
+import { describe, it, expect } from "vitest";
+import { parseReviewerOutput, computePLevel } from "../src/reviewer-parser";
+import type { Finding, PLevel } from "../src/types";
+
+describe("computePLevel", () => {
+  it("computes P0 for verified+critical", () => {
+    expect(computePLevel("verified", "critical")).toBe("p0");
+  });
+
+  it("computes P0 for likely+critical", () => {
+    expect(computePLevel("likely", "critical")).toBe("p0");
+  });
+
+  it("computes P1 for verified+functional", () => {
+    expect(computePLevel("verified", "functional")).toBe("p1");
+  });
+
+  it("computes P1 for likely+functional", () => {
+    expect(computePLevel("likely", "functional")).toBe("p1");
+  });
+
+  it("computes P1 for possible+critical", () => {
+    expect(computePLevel("possible", "critical")).toBe("p1");
+  });
+
+  it("computes P2 for verified+quality", () => {
+    expect(computePLevel("verified", "quality")).toBe("p2");
+  });
+
+  it("computes P2 for speculative+critical", () => {
+    expect(computePLevel("speculative", "critical")).toBe("p2");
+  });
+
+  it("computes P2 for possible+functional", () => {
+    expect(computePLevel("possible", "functional")).toBe("p2");
+  });
+
+  it("computes P3 for speculative+nitpick", () => {
+    expect(computePLevel("speculative", "nitpick")).toBe("p3");
+  });
+
+  it("computes P3 for verified+nitpick", () => {
+    expect(computePLevel("verified", "nitpick")).toBe("p3");
+  });
+
+  it("computes P3 for possible+quality", () => {
+    expect(computePLevel("possible", "quality")).toBe("p3");
+  });
+
+  // Full matrix check
+  const matrix: [string, string, PLevel][] = [
+    ["verified", "critical", "p0"],
+    ["verified", "functional", "p1"],
+    ["verified", "quality", "p2"],
+    ["verified", "nitpick", "p3"],
+    ["likely", "critical", "p0"],
+    ["likely", "functional", "p1"],
+    ["likely", "quality", "p2"],
+    ["likely", "nitpick", "p3"],
+    ["possible", "critical", "p1"],
+    ["possible", "functional", "p2"],
+    ["possible", "quality", "p3"],
+    ["possible", "nitpick", "p3"],
+    ["speculative", "critical", "p2"],
+    ["speculative", "functional", "p3"],
+    ["speculative", "quality", "p3"],
+    ["speculative", "nitpick", "p3"],
+  ];
+
+  for (const [confidence, impact, expected] of matrix) {
+    it(`${confidence} × ${impact} → ${expected}`, () => {
+      expect(
+        computePLevel(
+          confidence as Finding["confidence"],
+          impact as Finding["impact"]
+        )
+      ).toBe(expected);
+    });
+  }
+});
+
+describe("parseReviewerOutput", () => {
+  it("parses well-formed JSON findings output", () => {
+    const raw = JSON.stringify({
+      findings: [
+        {
+          id: "f-001",
+          file: "src/auth.ts",
+          line: 42,
+          confidence: "verified",
+          impact: "critical",
+          severity: "p0",
+          category: "security",
+          title: "SQL injection",
+          description: "Unsanitized input",
+          suggestion: "Use parameterized queries",
+          reviewer: "claude",
+          pre_existing: false,
+        },
+      ],
+      metadata: {
+        reviewer: "claude",
+        round: 1,
+        timestamp: "2026-03-13T10:00:00Z",
+        files_reviewed: 5,
+        diff_scope: "branch:feat/auth vs main",
+      },
+    });
+
+    const result = parseReviewerOutput(raw, "claude");
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe("f-001");
+    expect(result[0].severity).toBe("p0");
+    expect(result[0].reviewer).toBe("claude");
+  });
+
+  it("recomputes severity from confidence × impact even if provided", () => {
+    const raw = JSON.stringify({
+      findings: [
+        {
+          id: "f-001",
+          file: "src/auth.ts",
+          line: 42,
+          confidence: "possible",
+          impact: "functional",
+          severity: "p0", // wrong — should be p2
+          category: "logic",
+          title: "Bug",
+          description: "Off by one",
+          suggestion: "Fix index",
+          reviewer: "claude",
+          pre_existing: false,
+        },
+      ],
+      metadata: { reviewer: "claude", round: 1, timestamp: "2026-03-13T10:00:00Z" },
+    });
+
+    const result = parseReviewerOutput(raw, "claude");
+    expect(result[0].severity).toBe("p2");
+  });
+
+  it("stamps reviewer name on all findings", () => {
+    const raw = JSON.stringify({
+      findings: [
+        {
+          id: "f-001",
+          file: "src/x.ts",
+          line: 1,
+          confidence: "likely",
+          impact: "quality",
+          category: "style",
+          title: "Naming",
+          description: "Bad name",
+          suggestion: "Rename",
+        },
+      ],
+      metadata: { reviewer: "codex", round: 1, timestamp: "2026-03-13T10:00:00Z" },
+    });
+
+    const result = parseReviewerOutput(raw, "codex");
+    expect(result[0].reviewer).toBe("codex");
+  });
+
+  it("defaults pre_existing to false when not specified", () => {
+    const raw = JSON.stringify({
+      findings: [
+        {
+          id: "f-001",
+          file: "src/x.ts",
+          line: 1,
+          confidence: "likely",
+          impact: "quality",
+          category: "style",
+          title: "Naming",
+          description: "Bad name",
+          suggestion: "Rename",
+        },
+      ],
+      metadata: { reviewer: "claude", round: 1, timestamp: "2026-03-13T10:00:00Z" },
+    });
+
+    const result = parseReviewerOutput(raw, "claude");
+    expect(result[0].pre_existing).toBe(false);
+  });
+
+  it("handles findings array at top level (no wrapper)", () => {
+    const raw = JSON.stringify([
+      {
+        id: "f-001",
+        file: "src/x.ts",
+        line: 1,
+        confidence: "verified",
+        impact: "functional",
+        category: "logic",
+        title: "Bug",
+        description: "Broken",
+        suggestion: "Fix",
+      },
+    ]);
+
+    const result = parseReviewerOutput(raw, "claude");
+    expect(result).toHaveLength(1);
+    expect(result[0].severity).toBe("p1");
+    expect(result[0].reviewer).toBe("claude");
+  });
+
+  it("extracts JSON from mixed text output", () => {
+    const raw = `Here is my review:
+
+\`\`\`json
+{
+  "findings": [
+    {
+      "id": "f-001",
+      "file": "src/x.ts",
+      "line": 10,
+      "confidence": "likely",
+      "impact": "critical",
+      "category": "security",
+      "title": "Injection",
+      "description": "Bad",
+      "suggestion": "Fix"
+    }
+  ]
+}
+\`\`\`
+
+That's all I found.`;
+
+    const result = parseReviewerOutput(raw, "claude");
+    expect(result).toHaveLength(1);
+    expect(result[0].severity).toBe("p0");
+  });
+
+  it("returns empty array for output with no findings", () => {
+    const raw = "I reviewed the code and found no issues.";
+    const result = parseReviewerOutput(raw, "claude");
+    expect(result).toEqual([]);
+  });
+
+  it("generates ids when missing", () => {
+    const raw = JSON.stringify({
+      findings: [
+        {
+          file: "src/x.ts",
+          line: 1,
+          confidence: "verified",
+          impact: "critical",
+          category: "security",
+          title: "Bug",
+          description: "Bad",
+          suggestion: "Fix",
+        },
+        {
+          file: "src/y.ts",
+          line: 5,
+          confidence: "likely",
+          impact: "functional",
+          category: "logic",
+          title: "Bug2",
+          description: "Bad2",
+          suggestion: "Fix2",
+        },
+      ],
+      metadata: { reviewer: "claude", round: 1, timestamp: "2026-03-13T10:00:00Z" },
+    });
+
+    const result = parseReviewerOutput(raw, "claude");
+    expect(result[0].id).toBeTruthy();
+    expect(result[1].id).toBeTruthy();
+    expect(result[0].id).not.toBe(result[1].id);
+  });
+});

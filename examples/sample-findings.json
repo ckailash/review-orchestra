@@ -1,0 +1,53 @@
+{
+  "findings": [
+    {
+      "id": "f-001",
+      "file": "src/auth/middleware.ts",
+      "line": 42,
+      "confidence": "verified",
+      "impact": "critical",
+      "severity": "p0",
+      "category": "security",
+      "title": "SQL injection via unsanitized user input",
+      "description": "The `userId` parameter is interpolated directly into the SQL query without parameterization.",
+      "suggestion": "Use parameterized queries: `db.query('SELECT * FROM users WHERE id = $1', [userId])`",
+      "reviewer": "claude",
+      "pre_existing": false
+    },
+    {
+      "id": "f-002",
+      "file": "src/auth/middleware.ts",
+      "line": 78,
+      "confidence": "likely",
+      "impact": "functional",
+      "severity": "p1",
+      "category": "error-handling",
+      "title": "Uncaught promise rejection in auth flow",
+      "description": "The `verifyToken` call is not wrapped in try/catch, and the promise rejection will crash the process.",
+      "suggestion": "Wrap in try/catch and return 401 on verification failure.",
+      "reviewer": "codex",
+      "pre_existing": false
+    },
+    {
+      "id": "f-003",
+      "file": "src/api/routes.ts",
+      "line": 15,
+      "confidence": "possible",
+      "impact": "quality",
+      "severity": "p3",
+      "category": "performance",
+      "title": "N+1 query in user list endpoint",
+      "description": "Each user's profile is fetched individually in a loop. This could be batched.",
+      "suggestion": "Use a single query with `WHERE id IN (...)` instead of individual fetches.",
+      "reviewer": "claude",
+      "pre_existing": true
+    }
+  ],
+  "metadata": {
+    "reviewer": "claude",
+    "round": 1,
+    "timestamp": "2026-03-13T10:00:00Z",
+    "files_reviewed": 12,
+    "diff_scope": "branch:feat/auth vs main"
+  }
+}

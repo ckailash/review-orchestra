@@ -1,0 +1,34 @@
+{
+  "name": "review-orchestra",
+  "version": "0.1.0",
+  "description": "Multi-model automated code review orchestration for Claude Code",
+  "type": "module",
+  "main": "dist/orchestrator.js",
+  "bin": {
+    "review-orchestra": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsup",
+    "lint": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "eval": "tsx evals/run-eval.ts"
+  },
+  "keywords": [
+    "code-review",
+    "claude",
+    "codex",
+    "orchestration"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsup": "^8.5.1",
+    "tsx": "^4.19.0",
+    "typescript": "^5.8.0",
+    "vitest": "^3.1.0"
+  }
+}

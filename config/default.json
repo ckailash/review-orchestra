@@ -1,0 +1,22 @@
+{
+  "reviewers": {
+    "claude": {
+      "enabled": true,
+      "command": "claude -p - --allowed-tools \"Read,Grep,Glob,Bash\" --output-format json",
+      "outputFormat": "json"
+    },
+    "codex": {
+      "enabled": true,
+      "command": "codex exec - --output-last-message {outputFile} --json",
+      "outputFormat": "json"
+    }
+  },
+  "thresholds": {
+    "stopAt": "p1",
+    "maxRounds": 5
+  },
+  "escalation": {
+    "pauseOnAmbiguity": true,
+    "pauseOnConflict": true
+  }
+}

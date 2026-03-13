@@ -1,0 +1,20 @@
+{
+  "fixture": "sql-injection",
+  "expected_findings": [
+    {
+      "description": "SQL injection in login(): username is interpolated directly into a SELECT query via template literal, allowing authentication bypass",
+      "expected_impact": "critical",
+      "expected_confidence": "verified"
+    },
+    {
+      "description": "SQL injection in register(): username is interpolated directly into an INSERT query via template literal, allowing arbitrary SQL execution",
+      "expected_impact": "critical",
+      "expected_confidence": "verified"
+    },
+    {
+      "description": "SQL injection in findUsersByRole(): role parameter is interpolated directly into a SELECT query via template literal",
+      "expected_impact": "critical",
+      "expected_confidence": "verified"
+    }
+  ]
+}

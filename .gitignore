@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.review-orchestra/
+evals/results/
+*.tsbuildinfo
+.claude/projects/
+.claude/settings.local.json

@@ -1,0 +1,15 @@
+{
+  "fixture": "logic-errors",
+  "expected_findings": [
+    {
+      "description": "Off-by-one error in average(): loop starts at index 1 instead of 0, skipping the first element while still dividing by the full array length",
+      "expected_impact": "functional",
+      "expected_confidence": "verified"
+    },
+    {
+      "description": "Wrong comparison operator in filterRange(): uses strict less-than (item < max) instead of less-than-or-equal (item <= max), making the upper bound exclusive despite the docstring specifying an inclusive range",
+      "expected_impact": "functional",
+      "expected_confidence": "verified"
+    }
+  ]
+}

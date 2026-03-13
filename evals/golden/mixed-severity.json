@@ -1,0 +1,25 @@
+{
+  "fixture": "mixed-severity",
+  "expected_findings": [
+    {
+      "description": "Sensitive data exposure in getUser(): returns the full database row including password_hash and api_key to the client instead of stripping sensitive fields",
+      "expected_impact": "critical",
+      "expected_confidence": "verified"
+    },
+    {
+      "description": "Pagination offset bug in listUsers(): offset is calculated as page * pageSize instead of (page - 1) * pageSize, causing page 1 to skip the first batch of results entirely",
+      "expected_impact": "functional",
+      "expected_confidence": "verified"
+    },
+    {
+      "description": "No error handling in deleteUser(): database errors propagate as unhandled promise rejections instead of being caught and returned as a 500 response",
+      "expected_impact": "quality",
+      "expected_confidence": "likely"
+    },
+    {
+      "description": "Inconsistent naming convention: max_retries uses snake_case instead of the TypeScript/camelCase convention (maxRetries)",
+      "expected_impact": "nitpick",
+      "expected_confidence": "verified"
+    }
+  ]
+}
