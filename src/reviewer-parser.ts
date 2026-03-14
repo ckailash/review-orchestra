@@ -1,4 +1,5 @@
 import type { Confidence, Finding, Impact, PLevel } from "./types";
+import { extractJson, unwrapCliEnvelope } from "./json-utils";
 
 const P_LEVEL_MATRIX: Record<Confidence, Record<Impact, PLevel>> = {
   verified: { critical: "p0", functional: "p1", quality: "p2", nitpick: "p3" },
@@ -14,46 +15,6 @@ const P_LEVEL_MATRIX: Record<Confidence, Record<Impact, PLevel>> = {
 
 export function computePLevel(confidence: Confidence, impact: Impact): PLevel {
   return P_LEVEL_MATRIX[confidence][impact];
-}
-
-function extractJson(raw: string): unknown | null {
-  // Try direct parse first
-  try {
-    return JSON.parse(raw);
-  } catch {
-    // noop
-  }
-
-  // Try extracting from markdown code blocks
-  const codeBlockMatch = raw.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
-  if (codeBlockMatch) {
-    try {
-      return JSON.parse(codeBlockMatch[1]);
-    } catch {
-      // noop
-    }
-  }
-
-  // Try finding first { or [ in the text
-  const firstBrace = raw.indexOf("{");
-  const firstBracket = raw.indexOf("[");
-  const startIdx =
-    firstBrace === -1
-      ? firstBracket
-      : firstBracket === -1
-        ? firstBrace
-        : Math.min(firstBrace, firstBracket);
-
-  if (startIdx !== -1) {
-    const substr = raw.slice(startIdx);
-    try {
-      return JSON.parse(substr);
-    } catch {
-      // noop
-    }
-  }
-
-  return null;
 }
 
 const VALID_CONFIDENCE = new Set<string>([
@@ -81,25 +42,30 @@ function normalizeFinding(
     ? (raw.impact as Impact)
     : "quality";
 
+  const str = (v: unknown, fallback: string): string =>
+    typeof v === "string" ? v : (v != null ? String(v) : fallback);
+
   return {
-    id: (raw.id as string) || `${reviewer}-${index}`,
-    file: (raw.file as string) ?? "",
-    line: (raw.line as number) ?? 0,
+    id: str(raw.id, "") || `${reviewer}-${index}`,
+    file: str(raw.file, ""),
+    line: typeof raw.line === "number" ? raw.line : (parseInt(String(raw.line), 10) || 0),
     confidence,
     impact,
     severity: computePLevel(confidence, impact),
-    category: (raw.category as string) ?? "general",
-    title: (raw.title as string) ?? "",
-    description: (raw.description as string) ?? "",
-    suggestion: (raw.suggestion as string) ?? "",
+    category: str(raw.category, "general"),
+    title: str(raw.title, ""),
+    description: str(raw.description, ""),
+    suggestion: str(raw.suggestion, ""),
     reviewer,
-    pre_existing: (raw.pre_existing as boolean) ?? false,
+    pre_existing: typeof raw.pre_existing === "boolean" ? raw.pre_existing : false,
   };
 }
 
 export function parseReviewerOutput(raw: string, reviewer: string): Finding[] {
-  const parsed = extractJson(raw);
-  if (parsed === null) return [];
+  const rawParsed = extractJson(raw);
+  if (rawParsed === null) return [];
+
+  const parsed = unwrapCliEnvelope(rawParsed);
 
   let rawFindings: Record<string, unknown>[];
 

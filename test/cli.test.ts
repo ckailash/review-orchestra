@@ -62,15 +62,20 @@ describe("parseArgs", () => {
     expect(result.models).toEqual({ claude: "opus" });
   });
 
-  it("parses model for specific reviewer: 'use o3 for codex'", () => {
-    const result = parseArgs("use o3 for codex");
-    expect(result.models).toEqual({ codex: "o3" });
+  it("parses model for specific reviewer: 'use o4 for codex'", () => {
+    const result = parseArgs("use o4 for codex");
+    expect(result.models).toEqual({ codex: "o4" });
+  });
+
+  it("parses multiple model overrides: 'use opus for claude use o4 for codex'", () => {
+    const result = parseArgs("use opus for claude use o4 for codex");
+    expect(result.models).toEqual({ claude: "opus", codex: "o4" });
   });
 
   it("infers reviewer from model name pattern", () => {
     expect(parseArgs("use opus").models).toEqual({ claude: "opus" });
     expect(parseArgs("use sonnet").models).toEqual({ claude: "sonnet" });
-    expect(parseArgs("use o3").models).toEqual({ codex: "o3" });
+    expect(parseArgs("use o4").models).toEqual({ codex: "o4" });
   });
 
   it("passes full model IDs through verbatim", () => {
@@ -86,6 +91,34 @@ describe("parseArgs", () => {
   it("defaults unknown model families to claude reviewer", () => {
     const result = parseArgs("use my-custom-model");
     expect(result.models).toEqual({ claude: "my-custom-model" });
+  });
+
+  it("parses HEAD~N as a commit ref", () => {
+    expect(parseArgs("HEAD~1").commitRef).toBe("HEAD~1");
+    expect(parseArgs("HEAD~3").commitRef).toBe("HEAD~3");
+  });
+
+  it("parses commit ranges", () => {
+    expect(parseArgs("HEAD~3..HEAD").commitRef).toBe("HEAD~3..HEAD");
+    expect(parseArgs("abc1234..def5678").commitRef).toBe("abc1234..def5678");
+  });
+
+  it("parses bare SHAs as commit refs", () => {
+    expect(parseArgs("abc1234").commitRef).toBe("abc1234");
+    const sha40 = "abcdef1234abcdef1234abcdef1234abcdef1234";
+    expect(parseArgs(sha40).commitRef).toBe(sha40);
+  });
+
+  it("does not confuse short tokens with SHAs", () => {
+    // 6 chars or fewer are NOT treated as SHAs (too ambiguous)
+    expect(parseArgs("abc123").commitRef).toBeUndefined();
+  });
+
+  it("combines commit ref with other args", () => {
+    const result = parseArgs("HEAD~2 src/auth/ only claude");
+    expect(result.commitRef).toBe("HEAD~2");
+    expect(result.paths).toEqual(["src/auth/"]);
+    expect(result.onlyReviewer).toBe("claude");
   });
 
   it("parses combined args", () => {

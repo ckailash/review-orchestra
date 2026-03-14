@@ -467,8 +467,21 @@ Results are saved to `evals/results/` with timestamps for regression tracking.
 | Default stop condition | P1 (all P0 + P1 fixed) | Critical + functional issues always fixed. Users extend via natural language. |
 | Default reviewers | Claude + Codex | Pluggable interface for adding more. |
 | Model selection | Pass-through to CLIs | No hardcoded model list. Verbatim model names passed via `--model` flag. Heuristic routing for bare names (opus→claude, o3→codex). |
+| Review prompt | File list only (reviewers read from disk) | Reviewers see current file state, not a stale diff. Avoids multi-round staleness bug. See "Future: Diff-in-prompt mode" below. |
 | Tests | Vitest for deterministic code | Standard, no LLM calls needed |
 | Evals | LLM-as-judge + golden synthetic repos | Follows Martian benchmark pattern. Precision > recall. |
+
+## Future: Diff-in-prompt mode
+
+The current review prompt sends only the file list and instructs reviewers to read files from disk. This works well for reviewers with file-reading capabilities (Claude has `Read,Grep,Glob,Bash`; Codex has sandbox file access) and naturally solves the multi-round staleness problem — reviewers always see the current state of the code.
+
+A future alternative for "dumb pipe" reviewers (CLI tools that accept text in, return text out, with no file access):
+- Pass the full diff in the prompt (the original v1 approach)
+- Requires regenerating the diff before each round so reviewers see post-fix code
+- `scope.diff` is already captured during scope detection — would need a `refreshScope()` function to regenerate it from the scope's base ref to the current working tree
+- Trade-off: more universal (any CLI tool works) but hits token limits on large diffs and adds complexity to the round loop
+
+Add this as an opt-in mode (e.g., `reviewerConfig.promptMode: "file-list" | "inline-diff"`) when a concrete use case for dumb-pipe reviewers appears. Don't build it speculatively.
 
 ## For Open Source
 

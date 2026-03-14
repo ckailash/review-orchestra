@@ -238,6 +238,51 @@ That's all I found.`;
     expect(result).toEqual([]);
   });
 
+  it("unwraps claude CLI JSON envelope", () => {
+    const innerFindings = {
+      findings: [
+        {
+          id: "f-001",
+          file: "src/auth.ts",
+          line: 42,
+          confidence: "verified",
+          impact: "critical",
+          category: "security",
+          title: "SQL injection",
+          description: "Unsanitized input",
+          suggestion: "Fix",
+        },
+      ],
+      metadata: {},
+    };
+    // claude -p --output-format json wraps the result in an envelope
+    const envelope = JSON.stringify({
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      result: "```json\n" + JSON.stringify(innerFindings) + "\n```",
+    });
+
+    const result = parseReviewerOutput(envelope, "claude");
+    expect(result).toHaveLength(1);
+    expect(result[0].title).toBe("SQL injection");
+    expect(result[0].severity).toBe("p0");
+  });
+
+  it("unwraps envelope with plain JSON result (no code block)", () => {
+    const innerFindings = {
+      findings: [{ id: "f-001", file: "x.ts", line: 1, confidence: "likely", impact: "functional", category: "logic", title: "Bug", description: "Bad", suggestion: "Fix" }],
+    };
+    const envelope = JSON.stringify({
+      type: "result",
+      result: JSON.stringify(innerFindings),
+    });
+
+    const result = parseReviewerOutput(envelope, "test");
+    expect(result).toHaveLength(1);
+    expect(result[0].title).toBe("Bug");
+  });
+
   it("generates ids when missing", () => {
     const raw = JSON.stringify({
       findings: [

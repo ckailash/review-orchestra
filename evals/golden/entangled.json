@@ -1,0 +1,75 @@
+{
+  "fixture": "entangled",
+  "expected_findings": [
+    {
+      "description": "db.ts lacks parameterized query support — query() and transaction() only accept raw SQL strings, forcing all callers to concatenate user input. This is the systemic root cause of SQL injection across the codebase.",
+      "expected_impact": "critical",
+      "expected_confidence": "verified"
+    },
+    {
+      "description": "SQL injection in users.ts getUser(): userId is interpolated directly into a SELECT query string",
+      "expected_impact": "critical",
+      "expected_confidence": "verified"
+    },
+    {
+      "description": "Sensitive data exposure in users.ts getUser(): returns all fields including password_hash and api_key",
+      "expected_impact": "critical",
+      "expected_confidence": "verified"
+    },
+    {
+      "description": "SQL injection in users.ts searchUsers(): searchTerm is interpolated into LIKE clause without parameterization or escaping of SQL wildcards",
+      "expected_impact": "critical",
+      "expected_confidence": "verified"
+    },
+    {
+      "description": "SQL injection in users.ts updateUserRole(): userId and newRole interpolated into transaction queries",
+      "expected_impact": "critical",
+      "expected_confidence": "verified"
+    },
+    {
+      "description": "Timing side-channel in users.ts verifyPassword(): uses == for password comparison instead of constant-time compare",
+      "expected_impact": "functional",
+      "expected_confidence": "likely"
+    },
+    {
+      "description": "Path traversal in uploads.ts saveUpload(): user-controlled filename passed to path.join without validating the resolved path stays within the upload directory",
+      "expected_impact": "critical",
+      "expected_confidence": "verified"
+    },
+    {
+      "description": "No file size limit in uploads.ts saveUpload(): arbitrarily large uploads accepted",
+      "expected_impact": "quality",
+      "expected_confidence": "likely"
+    },
+    {
+      "description": "Path traversal in uploads.ts saveUploadExclusive(): same path.join vulnerability as saveUpload, user-controlled filename can escape upload directory",
+      "expected_impact": "critical",
+      "expected_confidence": "verified"
+    },
+    {
+      "description": "TOCTOU race condition in uploads.ts saveUploadExclusive(): gap between existsSync check and writeFileSync allows race condition",
+      "expected_impact": "functional",
+      "expected_confidence": "likely"
+    },
+    {
+      "description": "Insecure session token generation in session.ts: uses Math.random() which is not cryptographically secure",
+      "expected_impact": "critical",
+      "expected_confidence": "verified"
+    },
+    {
+      "description": "Session born expired in session.ts createSession(): expiry computed as Date.now() minus 24 hours instead of plus",
+      "expected_impact": "functional",
+      "expected_confidence": "verified"
+    },
+    {
+      "description": "SQL injection in session.ts createSession(): userId and token interpolated into audit log INSERT query",
+      "expected_impact": "critical",
+      "expected_confidence": "verified"
+    },
+    {
+      "description": "Synchronous session cleanup in session.ts: iterates entire session map synchronously, blocking the event loop",
+      "expected_impact": "quality",
+      "expected_confidence": "possible"
+    }
+  ]
+}

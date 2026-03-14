@@ -73,11 +73,13 @@ export function consolidate(findings: Finding[], diff: string): Finding[] {
   }
 
   // Tag pre-existing
+  // Findings with line=0 have unknown location — treat as NOT pre-existing
   const result: Finding[] = [];
   for (const finding of deduped.values()) {
     const inDiff =
-      diffFiles.has(finding.file) &&
-      isInDiffHunks(finding.file, finding.line, hunks);
+      finding.line === 0 ||
+      (diffFiles.has(finding.file) &&
+        isInDiffHunks(finding.file, finding.line, hunks));
 
     result.push({
       ...finding,

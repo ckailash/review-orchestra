@@ -1,26 +1,32 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { detectScope } from "../src/scope";
 
-// We'll mock the shell execution so tests are deterministic
-// execSync with encoding returns string, so mock returns strings
-const mockExec = vi.fn<(cmd: string) => string>();
+// scope.ts now uses execFileSync (argument arrays, no shell).
+// Mock it to match on the joined args for readability.
+const mockExecFile = vi.fn<(...args: unknown[]) => string>();
 vi.mock("child_process", () => ({
-  execSync: (...args: unknown[]) => mockExec(...args),
+  execFileSync: (...args: unknown[]) => mockExecFile(...args),
 }));
 
+function argsToCmd(args: unknown[]): string {
+  // execFileSync("git", [...gitArgs], opts) — join binary + gitArgs
+  const binary = args[0] as string;
+  const gitArgs = args[1] as string[];
+  return `${binary} ${gitArgs.join(" ")}`;
+}
+
 beforeEach(() => {
-  mockExec.mockReset();
+  mockExecFile.mockReset();
 });
 
 describe("detectScope", () => {
   describe("uncommitted changes", () => {
     it("detects staged + unstaged changes", async () => {
-      // git diff --name-only (unstaged) → has files
-      // git diff --cached --name-only (staged) → has files
-      // Combined diff output
-      mockExec.mockImplementation((cmd: string) => {
+      mockExecFile.mockImplementation((...args: unknown[]) => {
+        const cmd = argsToCmd(args);
         if (cmd === "git diff --name-only") return "src/foo.ts\n";
         if (cmd === "git diff --cached --name-only") return "src/bar.ts\n";
+        if (cmd === "git ls-files --others --exclude-standard") return "";
         if (cmd === "git diff HEAD") {
           return "diff --git a/src/foo.ts b/src/foo.ts\n--- a/src/foo.ts\n+++ b/src/foo.ts\n@@ -1,3 +1,4 @@\n+added line\n";
         }
@@ -39,21 +45,24 @@ describe("detectScope", () => {
 
   describe("branch changes", () => {
     it("detects committed changes on a branch vs main", async () => {
-      mockExec.mockImplementation((cmd: string) => {
+      mockExecFile.mockImplementation((...args: unknown[]) => {
+        const cmd = argsToCmd(args);
         // No uncommitted changes
         if (cmd === "git diff --name-only") return "";
         if (cmd === "git diff --cached --name-only") return "";
+        if (cmd === "git ls-files --others --exclude-standard") return "";
         // On a feature branch
         if (cmd === "git rev-parse --abbrev-ref HEAD") {
           return "feat/auth\n";
         }
+        // detectDefaultBranch: symbolic-ref fails, rev-parse --verify main succeeds
+        if (cmd === "git symbolic-ref refs/remotes/origin/HEAD") {
+          throw new Error("not set");
+        }
+        if (cmd === "git rev-parse --verify main") return "abc1234\n";
         // Has commits ahead of main
         if (cmd === "git log main..HEAD --oneline") {
           return "abc1234 add auth\ndef5678 add middleware\n";
-        }
-        // Merge base
-        if (cmd === "git merge-base main HEAD") {
-          return "1234567\n";
         }
         // Branch diff files
         if (cmd === "git diff main...HEAD --name-only") {
@@ -79,17 +88,20 @@ describe("detectScope", () => {
 
   describe("path filtering", () => {
     it("filters detected files to only specified paths", async () => {
-      mockExec.mockImplementation((cmd: string) => {
+      mockExecFile.mockImplementation((...args: unknown[]) => {
+        const cmd = argsToCmd(args);
         if (cmd === "git diff --name-only") return "";
         if (cmd === "git diff --cached --name-only") return "";
+        if (cmd === "git ls-files --others --exclude-standard") return "";
         if (cmd === "git rev-parse --abbrev-ref HEAD") {
           return "feat/auth\n";
         }
+        if (cmd === "git symbolic-ref refs/remotes/origin/HEAD") {
+          throw new Error("not set");
+        }
+        if (cmd === "git rev-parse --verify main") return "abc1234\n";
         if (cmd === "git log main..HEAD --oneline") {
           return "abc1234 add auth\n";
-        }
-        if (cmd === "git merge-base main HEAD") {
-          return "1234567\n";
         }
         if (cmd === "git diff main...HEAD --name-only") {
           return "src/auth/middleware.ts\nsrc/auth/login.ts\nsrc/api/routes.ts\n";
@@ -111,11 +123,13 @@ describe("detectScope", () => {
 
   describe("main branch with uncommitted changes", () => {
     it("detects uncommitted changes even on main", async () => {
-      mockExec.mockImplementation((cmd: string) => {
+      mockExecFile.mockImplementation((...args: unknown[]) => {
+        const cmd = argsToCmd(args);
         if (cmd === "git diff --name-only") {
           return "src/index.ts\n";
         }
         if (cmd === "git diff --cached --name-only") return "";
+        if (cmd === "git ls-files --others --exclude-standard") return "";
         if (cmd === "git diff HEAD") {
           return "diff content on main";
         }
@@ -133,13 +147,15 @@ describe("detectScope", () => {
 
   describe("no changes detected", () => {
     it("throws when there is nothing to review", async () => {
-      mockExec.mockImplementation((cmd: string) => {
+      mockExecFile.mockImplementation((...args: unknown[]) => {
+        const cmd = argsToCmd(args);
         if (cmd === "git diff --name-only") return "";
         if (cmd === "git diff --cached --name-only") return "";
+        if (cmd === "git ls-files --others --exclude-standard") return "";
         if (cmd === "git rev-parse --abbrev-ref HEAD") {
           return "main\n";
         }
-        if (cmd === "git log main..HEAD --oneline") return "";
+        if (cmd.startsWith("git log")) return "";
         return "";
       });
 
@@ -149,35 +165,11 @@ describe("detectScope", () => {
 
   describe("path validation", () => {
     it("rejects paths with .. traversal", async () => {
-      mockExec.mockImplementation((cmd: string) => {
-        if (cmd === "git diff --name-only") return "";
-        if (cmd === "git diff --cached --name-only") return "";
-        if (cmd === "git rev-parse --abbrev-ref HEAD") return "feat/test\n";
-        if (cmd === "git log main..HEAD --oneline") return "abc123 commit\n";
-        if (cmd === "git diff main...HEAD --name-only")
-          return "src/a.ts\n../../etc/passwd\n";
-        if (cmd === "git diff main...HEAD") return "small diff";
-        return "";
-      });
-
-      const scope = await detectScope(["../../etc/"]);
-      expect(scope.files).not.toContain("../../etc/passwd");
+      await expect(detectScope(["../../etc/"])).rejects.toThrow("Invalid path filters");
     });
 
     it("rejects absolute paths in filters", async () => {
-      mockExec.mockImplementation((cmd: string) => {
-        if (cmd === "git diff --name-only") return "";
-        if (cmd === "git diff --cached --name-only") return "";
-        if (cmd === "git rev-parse --abbrev-ref HEAD") return "feat/test\n";
-        if (cmd === "git log main..HEAD --oneline") return "abc123 commit\n";
-        if (cmd === "git diff main...HEAD --name-only") return "src/a.ts\n";
-        if (cmd === "git diff main...HEAD") return "small diff";
-        return "";
-      });
-
-      const scope = await detectScope(["/etc/passwd"]);
-      // Absolute path filter dropped, no valid filters remain, all files pass through
-      expect(scope.files).toEqual(["src/a.ts"]);
+      await expect(detectScope(["/etc/passwd"])).rejects.toThrow("Invalid path filters");
     });
   });
 });

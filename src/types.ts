@@ -32,7 +32,7 @@ export interface ReviewOutput {
 }
 
 // Scope detection
-export type ScopeType = "uncommitted" | "branch" | "pr";
+export type ScopeType = "uncommitted" | "branch" | "pr" | "commit";
 
 export interface DiffScope {
   type: ScopeType;

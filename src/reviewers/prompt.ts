@@ -7,11 +7,9 @@ export function buildReviewPrompt(
   return [
     basePrompt,
     "",
+    `Scope: ${scope.description}`,
+    "",
     "Files to review:",
     scope.files.join("\n"),
-    "",
-    "<code_diff>",
-    scope.diff,
-    "</code_diff>",
   ].join("\n");
 }

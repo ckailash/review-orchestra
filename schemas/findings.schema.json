@@ -46,7 +46,7 @@
     },
     "metadata": {
       "type": "object",
-      "required": ["reviewer", "round", "timestamp"],
+      "required": [],
       "properties": {
         "reviewer": { "type": "string" },
         "round": { "type": "integer" },

@@ -1,11 +1,13 @@
-import { readdirSync, readFileSync, writeFileSync, mkdirSync } from "fs";
-import { join } from "path";
+import { readdirSync, readFileSync, writeFileSync, mkdirSync, cpSync, rmSync, mkdtempSync } from "fs";
+import { dirname, join } from "path";
+import { tmpdir } from "os";
+import { fileURLToPath } from "url";
 import { judge, type GoldenFixture, type JudgeResult } from "./judge";
-import { detectScope } from "../src/scope";
 import { loadConfig } from "../src/config";
 import { Orchestrator } from "../src/orchestrator";
+import type { DiffScope, OrchestratorState } from "../src/types";
 
-const EVALS_DIR = join(import.meta.dirname, ".");
+const EVALS_DIR = join(dirname(fileURLToPath(import.meta.url)), ".");
 const GOLDEN_DIR = join(EVALS_DIR, "golden");
 const REPOS_DIR = join(EVALS_DIR, "repos");
 const RESULTS_DIR = join(EVALS_DIR, "results");
@@ -26,40 +28,90 @@ async function runFixture(
   const golden: GoldenFixture = JSON.parse(readFileSync(goldenPath, "utf-8"));
 
   const repoDir = join(REPOS_DIR, fixtureName);
-  const stateDir = join(repoDir, ".review-orchestra");
 
-  // Run the orchestrator against the synthetic repo
-  const config = loadConfig({ thresholds: { maxRounds: 1, stopAt: "p3" } });
-  const scope = await detectScope();
+  // Copy fixture to a temp directory so the originals are never mutated
+  const tempDir = mkdtempSync(join(tmpdir(), `eval-${fixtureName}-`));
+  cpSync(repoDir, tempDir, { recursive: true });
 
-  // Override scope to point at the fixture's files
-  const fixtureFiles = listFiles(join(repoDir, "src"));
-  scope.files = fixtureFiles.map((f) => f.replace(process.cwd() + "/", ""));
+  const stateDir = join(tempDir, ".review-orchestra");
 
-  const orchestrator = new Orchestrator(config, stateDir);
-  const summary = await orchestrator.run(scope);
+  // Allow fixtures to opt into multiple rounds
+  const maxRounds = (golden as Record<string, unknown>).maxRounds as number ?? 1;
+  const config = loadConfig({ thresholds: { maxRounds, stopAt: "p3" } });
 
-  // Gather all findings from the run
-  const allFindings = [
-    ...summary.remainingFindings,
-    ...summary.preExistingFindings,
-  ];
+  // Build a synthetic scope from the fixture's files
+  const fixtureFiles = listFiles(join(tempDir, "src"));
+  const relativeFiles = fixtureFiles.map((f) => f.replace(tempDir + "/", ""));
 
-  // Judge the results
-  const result = await judge(fixtureName, allFindings, golden, judgeModel);
+  // Generate a diff covering all fixture files so the consolidator can
+  // correctly tag findings as new (not pre-existing).
+  const { execFileSync } = await import("child_process");
+  const fixtureDiffs = relativeFiles.map((f) => {
+    try {
+      return execFileSync("git", ["diff", "--no-index", "/dev/null", f], {
+        encoding: "utf-8",
+        cwd: tempDir,
+      }).trim();
+    } catch (err) {
+      if (err && typeof err === "object" && "stdout" in err) {
+        return String((err as { stdout: string }).stdout).trim();
+      }
+      return "";
+    }
+  });
 
-  console.log(`  Precision: ${(result.precision * 100).toFixed(1)}%`);
-  console.log(`  Recall:    ${(result.recall * 100).toFixed(1)}%`);
-  console.log(`  Severity:  ${(result.severity_accuracy * 100).toFixed(1)}%`);
-  console.log(`  Matched:   ${result.matched.length}/${golden.expected_findings.length}`);
-  console.log(`  Missed:    ${result.missed.length}`);
-  console.log(`  Hallucinated: ${result.hallucinated.length}`);
-
-  return {
-    fixture: fixtureName,
-    judge: result,
-    timestamp: new Date().toISOString(),
+  const scope: DiffScope = {
+    type: "uncommitted",
+    diff: fixtureDiffs.filter(Boolean).join("\n"),
+    files: relativeFiles,
+    baseBranch: "main",
+    description: `Eval fixture: ${fixtureName}`,
   };
+
+  // Switch cwd so reviewer subprocesses resolve files against the fixture copy
+  const originalCwd = process.cwd();
+  process.chdir(tempDir);
+  const orchestrator = new Orchestrator(config, stateDir, {}, originalCwd);
+  try {
+    await orchestrator.run(scope);
+
+    // Read consolidated findings from state — includes findings that were auto-fixed,
+    // which summary.remainingFindings omits. Judging post-fix results would score
+    // successfully-found-and-fixed issues as misses.
+    const statePath = join(stateDir, "state.json");
+    const state: OrchestratorState = JSON.parse(readFileSync(statePath, "utf-8"));
+
+    // Aggregate findings across all rounds (for multi-round evals)
+    const findingMap = new Map<string, (typeof state.rounds)[number]["consolidated"][number]>();
+    for (const round of state.rounds) {
+      for (const f of round.consolidated) {
+        const key = `${f.file}:${f.line}:${f.title}`;
+        findingMap.set(key, f);
+      }
+    }
+    const allFindings = [...findingMap.values()];
+
+    // Judge the results
+    const result = await judge(fixtureName, allFindings, golden, judgeModel);
+
+    console.log(`  Precision: ${(result.precision * 100).toFixed(1)}%`);
+    console.log(`  Recall:    ${(result.recall * 100).toFixed(1)}%`);
+    console.log(`  Severity:  ${(result.severity_accuracy * 100).toFixed(1)}%`);
+    console.log(`  Matched:   ${result.matched.length}/${golden.expected_findings.length}`);
+    console.log(`  Missed:    ${result.missed.length}`);
+    console.log(`  Hallucinated: ${result.hallucinated.length}`);
+
+    return {
+      fixture: fixtureName,
+      judge: result,
+      timestamp: new Date().toISOString(),
+    };
+  } finally {
+    // Restore cwd before deleting tempDir
+    process.chdir(originalCwd);
+    // Clean up temp directory
+    rmSync(tempDir, { recursive: true, force: true });
+  }
 }
 
 function listFiles(dir: string): string[] {
@@ -99,12 +151,14 @@ async function main() {
   mkdirSync(RESULTS_DIR, { recursive: true });
 
   const results: EvalResult[] = [];
+  let hasFailure = false;
   for (const fixture of toRun) {
     try {
       const result = await runFixture(fixture, judgeModel);
       results.push(result);
     } catch (err) {
       console.error(`  FAILED: ${err}`);
+      hasFailure = true;
     }
   }
 
@@ -121,6 +175,13 @@ async function main() {
       `${r.fixture}: precision=${(r.judge.precision * 100).toFixed(0)}% recall=${(r.judge.recall * 100).toFixed(0)}%`
     );
   }
+
+  if (hasFailure) {
+    process.exitCode = 1;
+  }
 }
 
-main().catch(console.error);
+main().catch((err) => {
+  console.error(err);
+  process.exitCode = 1;
+});

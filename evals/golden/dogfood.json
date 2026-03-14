@@ -1,0 +1,20 @@
+{
+  "fixture": "dogfood",
+  "expected_findings": [
+    {
+      "description": "Command injection: userId is interpolated directly into an execSync shell command, allowing arbitrary command execution",
+      "expected_impact": "critical",
+      "expected_confidence": "verified"
+    },
+    {
+      "description": "Path traversal: filePath from user input is passed directly to readFileSync with no validation or directory restriction",
+      "expected_impact": "critical",
+      "expected_confidence": "verified"
+    },
+    {
+      "description": "Hardcoded credentials: API key is embedded as a string literal in source code",
+      "expected_impact": "critical",
+      "expected_confidence": "verified"
+    }
+  ]
+}

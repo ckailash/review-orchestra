@@ -67,6 +67,8 @@ export class StateManager {
 
   start(scope: DiffScope): void {
     this.acquireLock();
+    // Reset state for a fresh run — previous round data is already persisted on disk
+    this.state = defaultState();
     this.state.status = "running";
     this.state.scope = scope;
     this.state.startedAt = new Date().toISOString();
@@ -131,7 +133,7 @@ export class StateManager {
     this.releaseLock();
   }
 
-  private persist(): void {
+  persist(): void {
     mkdirSync(this.stateDir, { recursive: true });
     // Atomic write: write to tmp, then rename
     const tmpFile = join(this.stateDir, "state.json.tmp");
@@ -140,35 +142,42 @@ export class StateManager {
   }
 
   private acquireLock(): void {
-    if (existsSync(this.lockFile)) {
-      // Check if the lock is stale (PID no longer running)
-      try {
-        const lockPid = readFileSync(this.lockFile, "utf-8").trim();
-        const pid = parseInt(lockPid, 10);
-        if (!isNaN(pid)) {
-          try {
-            process.kill(pid, 0); // check if process exists
-            throw new Error(
-              `Another review-orchestra instance is running (PID ${pid}). ` +
-                `Delete ${this.lockFile} if this is incorrect.`
-            );
-          } catch (e) {
-            if (e instanceof Error && e.message.includes("Another review-orchestra")) {
-              throw e;
-            }
-            // Process doesn't exist — stale lock, safe to remove
-          }
-        }
-      } catch (e) {
-        if (e instanceof Error && e.message.includes("Another review-orchestra")) {
-          throw e;
-        }
-        // Can't read lock file — remove it
-      }
-      unlinkSync(this.lockFile);
-    }
     mkdirSync(this.stateDir, { recursive: true });
-    writeFileSync(this.lockFile, String(process.pid));
+    try {
+      // Atomic create — fails with EEXIST if the file already exists
+      writeFileSync(this.lockFile, String(process.pid), { flag: "wx" });
+    } catch (err) {
+      if (err && typeof err === "object" && "code" in err && (err as NodeJS.ErrnoException).code === "EEXIST") {
+        // Lock file exists — check if the holder is still alive
+        try {
+          const lockPid = readFileSync(this.lockFile, "utf-8").trim();
+          const pid = parseInt(lockPid, 10);
+          if (!isNaN(pid)) {
+            try {
+              process.kill(pid, 0);
+              throw new Error(
+                `Another review-orchestra instance is running (PID ${pid}). ` +
+                  `Delete ${this.lockFile} if this is incorrect.`
+              );
+            } catch (e) {
+              if (e instanceof Error && e.message.includes("Another review-orchestra")) {
+                throw e;
+              }
+              // Process doesn't exist — stale lock, safe to overwrite
+            }
+          }
+        } catch (e) {
+          if (e instanceof Error && e.message.includes("Another review-orchestra")) {
+            throw e;
+          }
+          // Can't read lock file — treat as stale
+        }
+        // Stale lock — overwrite it
+        writeFileSync(this.lockFile, String(process.pid));
+      } else {
+        throw err;
+      }
+    }
   }
 
   private releaseLock(): void {

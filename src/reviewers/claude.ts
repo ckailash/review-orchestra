@@ -1,8 +1,10 @@
-import { execSync } from "child_process";
 import type { Reviewer } from "./types";
 import type { DiffScope, Finding, ReviewerConfig } from "../types";
 import { parseReviewerOutput } from "../reviewer-parser";
 import { buildReviewPrompt } from "./prompt";
+import { parseCommand } from "./command";
+import { log, logCommand, logTiming } from "../log";
+import { spawnWithStreaming } from "../process";
 
 export class ClaudeReviewer implements Reviewer {
   readonly name = "claude";
@@ -11,20 +13,34 @@ export class ClaudeReviewer implements Reviewer {
 
   async review(prompt: string, scope: DiffScope): Promise<Finding[]> {
     const fullPrompt = buildReviewPrompt(prompt, scope);
-    const cmd = this.config.model
-      ? `${this.config.command} --model ${this.config.model}`
-      : this.config.command;
+    const { bin, args } = parseCommand(this.config.command);
+    if (this.config.model) {
+      args.push("--model", this.config.model);
+    }
+
+    // Strip CLAUDECODE env var so headless claude -p doesn't think it's a nested session
+    const env = { ...process.env };
+    delete env.CLAUDECODE;
+
+    logCommand("claude: invoking", bin, args);
+    log(`claude: reviewing ${scope.files.length} files`);
+    const startMs = Date.now();
 
     try {
-      const output = execSync(cmd, {
+      const output = await spawnWithStreaming({
+        bin,
+        args,
         input: fullPrompt,
-        encoding: "utf-8",
-        timeout: 300_000,
-        maxBuffer: 10 * 1024 * 1024,
+        env,
+        label: "claude",
       });
-      return parseReviewerOutput(output, this.name);
+      logTiming("claude: review complete", startMs);
+      const findings = parseReviewerOutput(output, this.name);
+      log(`claude: parsed ${findings.length} findings from ${output.length} bytes of output`);
+      return findings;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      logTiming(`claude: FAILED — ${message.slice(0, 200)}`, startMs);
       throw new Error(`Claude reviewer failed: ${message}`);
     }
   }

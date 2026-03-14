@@ -28,9 +28,15 @@ Your context window will be automatically compacted as it approaches its limit. 
 
 ## Source of Truth
 
-**PLAN.md is the source of truth** for all architecture and design decisions. Re-read it if your context has been compacted or if you're unsure about any decision.
+**docs/plans/architecture.md is the source of truth** for all architecture and design decisions. Re-read it if your context has been compacted or if you're unsure about any decision. Additional plans live in `docs/plans/`.
 
 ## Build & Verification
+
+**Build** - MUST run after any code changes before testing via CLI or skill:
+```bash
+npm run build
+```
+The `review-orchestra` CLI binary is a bundled file (`dist/cli.js`) created by `npm run build`. Changes to `src/` are NOT reflected in the CLI until you rebuild. Always rebuild before manual testing.
 
 **Linting** - Run before committing:
 ```bash

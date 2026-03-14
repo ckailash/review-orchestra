@@ -5,3 +5,4 @@ evals/results/
 *.tsbuildinfo
 .claude/projects/
 .claude/settings.local.json
+.claude/skills/

@@ -1,15 +1,28 @@
-import { execSync } from "child_process";
 import { readFileSync } from "fs";
 import { join } from "path";
-import type { Finding, FixReport } from "./types";
+import type { Finding, FixReport, PLevel } from "./types";
+import { extractJson, unwrapCliEnvelope } from "./json-utils";
+import { log, logTiming } from "./log";
+import { spawnWithStreaming } from "./process";
+
+const P_LEVEL_ORDER: Record<PLevel, number> = {
+  p0: 0,
+  p1: 1,
+  p2: 2,
+  p3: 3,
+};
 
 export async function runFixer(
   findings: Finding[],
   stateDir: string,
-  round: number,
-  packageRoot: string = process.cwd()
+  packageRoot: string = process.cwd(),
+  stopAt?: PLevel,
+  fixerBin: string = "claude"
 ): Promise<FixReport> {
-  const fixableFindings = findings.filter((f) => !f.pre_existing);
+  const threshold = stopAt ? P_LEVEL_ORDER[stopAt] : Infinity;
+  const fixableFindings = findings.filter(
+    (f) => !f.pre_existing && P_LEVEL_ORDER[f.severity] <= threshold
+  );
   if (fixableFindings.length === 0) {
     return { fixed: [], skipped: [], escalated: [] };
   }
@@ -19,67 +32,40 @@ export async function runFixer(
   const findingsJson = JSON.stringify(fixableFindings, null, 2);
   const fullPrompt = `${fixPromptTemplate}\n\n${findingsJson}`;
 
-  const cmd = 'claude -p - --allowed-tools "Read,Grep,Glob,Bash,Edit,Write" --output-format json';
+  // Strip CLAUDECODE env var so headless claude -p doesn't think it's a nested session
+  const env = { ...process.env };
+  delete env.CLAUDECODE;
+
+  log(`fixer: fixing ${fixableFindings.length} findings`);
+  log(`fixer: findings — ${fixableFindings.map(f => `${f.id}:${f.severity}:${f.title.slice(0, 50)}`).join(", ")}`);
+  const startMs = Date.now();
 
   try {
-    const output = execSync(cmd, {
+    const output = await spawnWithStreaming({
+      bin: fixerBin,
+      args: ["-p", "-", "--allowed-tools", "Read,Grep,Glob,Bash,Edit,Write", "--output-format", "json"],
       input: fullPrompt,
-      encoding: "utf-8",
-      timeout: 600_000, // 10 minutes for fixes
-      maxBuffer: 10 * 1024 * 1024,
+      env,
+      label: "fixer",
     });
 
-    return parseFixReport(output, fixableFindings);
+    logTiming("fixer: complete", startMs);
+    const report = parseFixReport(output, fixableFindings);
+    log(`fixer: fixed=${report.fixed.length} skipped=${report.skipped.length} escalated=${report.escalated.length}`);
+    return report;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    logTiming(`fixer: FAILED — ${message.slice(0, 200)}`, startMs);
     throw new Error(`Fixer failed: ${message}`);
   }
-}
-
-function extractJson(raw: string): unknown | null {
-  // Try direct parse
-  try {
-    return JSON.parse(raw);
-  } catch {
-    // noop
-  }
-
-  // Try extracting from markdown code blocks
-  const codeBlockMatch = raw.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
-  if (codeBlockMatch) {
-    try {
-      return JSON.parse(codeBlockMatch[1]);
-    } catch {
-      // noop
-    }
-  }
-
-  // Try finding balanced JSON starting from first {
-  const idx = raw.indexOf("{");
-  if (idx !== -1) {
-    // Walk forward to find the matching closing brace
-    let depth = 0;
-    for (let i = idx; i < raw.length; i++) {
-      if (raw[i] === "{") depth++;
-      else if (raw[i] === "}") depth--;
-      if (depth === 0) {
-        try {
-          return JSON.parse(raw.slice(idx, i + 1));
-        } catch {
-          break;
-        }
-      }
-    }
-  }
-
-  return null;
 }
 
 function parseFixReport(
   raw: string,
   findings: Finding[]
 ): FixReport {
-  const parsed = extractJson(raw);
+  const rawParsed = extractJson(raw);
+  const parsed = rawParsed !== null ? unwrapCliEnvelope(rawParsed) : null;
   if (
     parsed !== null &&
     typeof parsed === "object" &&
@@ -93,10 +79,10 @@ function parseFixReport(
     };
   }
 
-  // If we can't parse a structured report, assume all findings were attempted
+  // Unparseable response — cannot confirm any fixes were applied
   return {
-    fixed: findings.map((f) => f.id),
-    skipped: [],
+    fixed: [],
+    skipped: findings.map((f) => f.id),
     escalated: [],
   };
 }

@@ -1,5 +1,6 @@
-import { execSync } from "child_process";
+import { execFileSync } from "child_process";
 import type { Finding } from "../src/types";
+import { extractJson, unwrapCliEnvelope } from "../src/json-utils";
 
 export interface GoldenFinding {
   description: string;
@@ -30,11 +31,9 @@ export async function judge(
 ): Promise<JudgeResult> {
   const prompt = buildJudgePrompt(actualFindings, golden);
 
-  const escapedPrompt = prompt.replace(/"/g, '\\"').replace(/`/g, "\\`");
-  const cmd = `claude -p "${escapedPrompt}" --model ${judgeModel} --output-format json`;
-
   try {
-    const output = execSync(cmd, {
+    const output = execFileSync("claude", ["-p", "-", "--model", judgeModel, "--output-format", "json"], {
+      input: prompt,
       encoding: "utf-8",
       timeout: 120_000,
       maxBuffer: 10 * 1024 * 1024,
@@ -92,26 +91,47 @@ function parseJudgeOutput(
   golden: GoldenFixture
 ): JudgeResult {
   try {
-    const jsonMatch = raw.match(/\{[\s\S]*"matches"[\s\S]*\}/);
-    if (!jsonMatch) return fallbackJudge(fixture, actual, golden);
+    const extracted = extractJson(raw);
+    if (!extracted || typeof extracted !== "object") return fallbackJudge(fixture, actual, golden);
 
-    const parsed = JSON.parse(jsonMatch[0]);
-    const matches = parsed.matches ?? [];
+    const parsed = unwrapCliEnvelope(extracted) as Record<string, unknown>;
+    if (!parsed || typeof parsed !== "object" || !("matches" in parsed)) return fallbackJudge(fixture, actual, golden);
+    const rawMatches = (parsed.matches ?? []) as { golden_index: number; actual_id: string; severity_match: boolean }[];
     const hallucinatedIds = new Set(parsed.hallucinated_ids ?? []);
     const missedIndices = new Set(parsed.missed_golden_indices ?? []);
 
-    const matched = matches.map(
-      (m: { golden_index: number; actual_id: string; severity_match: boolean }) => ({
-        golden: golden.expected_findings[m.golden_index],
-        actual: actual.find((f) => f.id === m.actual_id)!,
-      })
-    );
+    // Deduplicate matches by both golden_index and actual_id
+    const seenGolden = new Set<number>();
+    const seenActual = new Set<string>();
+    const matches: typeof rawMatches = [];
+    for (const m of rawMatches) {
+      if (!seenGolden.has(m.golden_index) && !seenActual.has(m.actual_id)) {
+        seenGolden.add(m.golden_index);
+        seenActual.add(m.actual_id);
+        matches.push(m);
+      }
+    }
+
+    const matched = matches
+      .map(
+        (m: { golden_index: number; actual_id: string; severity_match: boolean }) => ({
+          golden: golden.expected_findings[m.golden_index],
+          actual: actual.find((f) => f.id === m.actual_id),
+        })
+      )
+      .filter((m): m is { golden: (typeof golden.expected_findings)[number]; actual: Finding } => m.actual !== undefined);
 
     const totalExpected = golden.expected_findings.length;
     const totalActual = actual.length;
-    const truePositives = matches.length;
-    const severityCorrect = matches.filter(
-      (m: { severity_match: boolean }) => m.severity_match
+    const truePositives = matched.length;
+    const severityCorrect = matched.filter(
+      (m) => {
+        const orig = matches.find(
+          (raw: { golden_index: number; actual_id: string; severity_match: boolean }) =>
+            raw.actual_id === m.actual.id
+        );
+        return orig?.severity_match ?? false;
+      }
     ).length;
 
     return {

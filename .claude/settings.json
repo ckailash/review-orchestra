@@ -31,6 +31,7 @@
       "Bash(gh repo:*)",
       "Bash(claude -p:*)",
       "Bash(codex exec:*)",
+      "Bash(review-orchestra:*)",
       "Bash(mkdir:*)",
       "Bash(ls:*)",
       "Bash(find:*)",
@@ -42,6 +43,10 @@
       "Bash(wc:*)",
       "Bash(chmod +x:*)",
       "Bash(rm -rf .review-orchestra:*)",
+      "Bash(rm -rf src/services:*)",
+      "Bash(rm -rf src/services/*:*)",
+      "Bash(cp:*)",
+      "Bash(mv:*)",
       "WebSearch",
       "WebFetch"
     ]

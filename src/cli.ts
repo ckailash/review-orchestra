@@ -26,9 +26,10 @@ async function main(): Promise<void> {
   if (args.disabledReviewers.length > 0 || args.onlyReviewer || Object.keys(args.models).length > 0) {
     overrides.reviewers = {};
     if (args.onlyReviewer) {
-      for (const name of ["claude", "codex"]) {
+      const baseConfig = loadConfig();
+      for (const name of Object.keys(baseConfig.reviewers)) {
         if (name !== args.onlyReviewer) {
-          overrides.reviewers[name] = { enabled: false };
+          overrides.reviewers![name] = { enabled: false };
         }
       }
     }
@@ -46,7 +47,7 @@ async function main(): Promise<void> {
   console.error("[review-orchestra] Detecting scope...");
   let scope;
   try {
-    scope = await detectScope(args.paths);
+    scope = await detectScope(args.paths, args.commitRef);
   } catch (err) {
     console.error(`[review-orchestra] ${err instanceof Error ? err.message : String(err)}`);
     process.exit(1);
@@ -78,6 +79,9 @@ async function main(): Promise<void> {
     },
     onReviewComplete(reviewer, findings) {
       console.error(`[review-orchestra] ${reviewer}: ${findings.length} findings`);
+    },
+    onReviewerError(reviewer, error) {
+      console.error(`[review-orchestra] WARNING: ${reviewer} failed: ${error}`);
     },
     onConsolidated(findings) {
       const actionable = findings.filter(f => !f.pre_existing);

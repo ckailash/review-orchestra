@@ -5,6 +5,17 @@ import type { PLevel } from "./types";
 const CLAUDE_MODEL_PATTERN = /^(opus|sonnet|haiku|claude)/i;
 const OPENAI_MODEL_PATTERN = /^(o[134]|gpt|codex)/i;
 
+// Matches git refs: HEAD~N, HEAD^N, SHAs (7+ hex chars), ranges (ref..ref)
+function isGitRef(token: string): boolean {
+  // Ranges: abc..def or abc...def — require non-dot chars on both sides
+  if (/^[^.]+\.{2,3}[^.]+$/.test(token)) return true;
+  // HEAD with optional ~N or ^N
+  if (/^HEAD([~^]\d*)*$/i.test(token)) return true;
+  // Bare SHA (7-40 hex characters)
+  if (/^[0-9a-f]{7,40}$/i.test(token)) return true;
+  return false;
+}
+
 function inferReviewerForModel(modelName: string): string {
   if (CLAUDE_MODEL_PATTERN.test(modelName)) return "claude";
   if (OPENAI_MODEL_PATTERN.test(modelName)) return "codex";
@@ -14,6 +25,7 @@ function inferReviewerForModel(modelName: string): string {
 
 export interface ParsedArgs {
   paths: string[];
+  commitRef?: string;
   stopAt?: PLevel;
   maxRounds?: number;
   disabledReviewers: string[];
@@ -55,9 +67,9 @@ export function parseArgs(input: string): ParsedArgs {
     remaining = remaining.replace(/fix\s+quality\s*(issues?)?\s*(too)?/gi, "").trim();
   }
 
-  // Reviewer selection: "skip codex", "only use claude"
-  const skipMatch = remaining.match(/skip\s+(\w+)/i);
-  if (skipMatch) {
+  // Reviewer selection: "skip codex", "skip codex skip gemini", "only use claude"
+  let skipMatch;
+  while ((skipMatch = remaining.match(/skip\s+(\w+)/i))) {
     result.disabledReviewers.push(skipMatch[1].toLowerCase());
     remaining = remaining.replace(skipMatch[0], "").trim();
   }
@@ -70,22 +82,35 @@ export function parseArgs(input: string): ParsedArgs {
 
   // Model selection: "use opus for claude", "use o3 for codex", "use opus"
   // Model names are passed through verbatim — the reviewer CLIs resolve them.
-  const modelForMatch = remaining.match(/use\s+([\w.-]+)\s+for\s+(\w+)/i);
-  if (modelForMatch) {
+  // Loop to handle multiple model assignments in one input.
+  let modelForMatch;
+  while ((modelForMatch = remaining.match(/use\s+([\w.-]+)\s+for\s+(\w+)/i))) {
     result.models[modelForMatch[2].toLowerCase()] = modelForMatch[1];
     remaining = remaining.replace(modelForMatch[0], "").trim();
-  } else {
-    const modelMatch = remaining.match(/use\s+([\w.-]+)/i);
-    if (modelMatch) {
-      const modelName = modelMatch[1];
-      const target = inferReviewerForModel(modelName);
-      result.models[target] = modelName;
-      remaining = remaining.replace(modelMatch[0], "").trim();
+  }
+  // Bare model name without "for <reviewer>" — infer target from model name
+  const modelMatch = remaining.match(/use\s+([\w.-]+)/i);
+  if (modelMatch) {
+    const modelName = modelMatch[1];
+    const target = inferReviewerForModel(modelName);
+    result.models[target] = modelName;
+    remaining = remaining.replace(modelMatch[0], "").trim();
+  }
+
+  // Git ref detection: HEAD~N, SHA, ranges (abc..def), etc.
+  // Must come before path detection since SHAs could be mistaken for dotfiles
+  const tokens = remaining.split(/\s+/).filter(Boolean);
+  const nonRefTokens: string[] = [];
+  for (const token of tokens) {
+    if (isGitRef(token)) {
+      result.commitRef = token;
+    } else {
+      nonRefTokens.push(token);
     }
   }
 
   // Remaining tokens that look like paths
-  for (const token of remaining.split(/\s+/).filter(Boolean)) {
+  for (const token of nonRefTokens) {
     if (token.includes("/") || token.includes(".") || /^(src|lib|test|app|pkg)$/i.test(token)) {
       result.paths.push(token);
     }

@@ -1,10 +1,12 @@
-import { execSync } from "child_process";
 import type { Config, DiffScope, Finding, ReviewerConfig } from "../types";
 import type { Reviewer } from "./types";
 import { ClaudeReviewer } from "./claude";
 import { CodexReviewer } from "./codex";
 import { parseReviewerOutput } from "../reviewer-parser";
 import { buildReviewPrompt } from "./prompt";
+import { parseCommand } from "./command";
+import { log, logCommand, logTiming } from "../log";
+import { spawnWithStreaming } from "../process";
 
 export function createReviewers(config: Config, stateDir: string): Reviewer[] {
   const reviewers: Reviewer[] = [];
@@ -41,20 +43,35 @@ class GenericReviewer implements Reviewer {
   async review(prompt: string, scope: DiffScope): Promise<Finding[]> {
     const fullPrompt = buildReviewPrompt(prompt, scope);
 
-    const cmd = this.config.model
-      ? `${this.config.command} --model ${this.config.model}`
-      : this.config.command;
+    const { bin, args: templateArgs } = parseCommand(this.config.command);
+    const args = templateArgs.map(a => a.replace("{prompt}", fullPrompt));
+    if (this.config.model) {
+      args.push("--model", this.config.model);
+    }
+
+    // Strip CLAUDECODE env var so headless processes don't think they're nested sessions
+    const env = { ...process.env };
+    delete env.CLAUDECODE;
+
+    logCommand(`${this.name}: invoking`, bin, args);
+    log(`${this.name}: reviewing ${scope.files.length} files`);
+    const startMs = Date.now();
 
     try {
-      const output = execSync(cmd, {
+      const output = await spawnWithStreaming({
+        bin,
+        args,
         input: fullPrompt,
-        encoding: "utf-8",
-        timeout: 300_000,
-        maxBuffer: 10 * 1024 * 1024,
+        env,
+        label: this.name,
       });
-      return parseReviewerOutput(output, this.name);
+      logTiming(`${this.name}: review complete`, startMs);
+      const findings = parseReviewerOutput(output, this.name);
+      log(`${this.name}: parsed ${findings.length} findings`);
+      return findings;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      logTiming(`${this.name}: FAILED — ${message.slice(0, 200)}`, startMs);
       throw new Error(`${this.name} reviewer failed: ${message}`);
     }
   }
