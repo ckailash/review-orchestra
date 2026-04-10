@@ -6,6 +6,9 @@ describe("loadConfig", () => {
   it("returns default config when no overrides provided", () => {
     const config = loadConfig();
     expect(config.thresholds.stopAt).toBe("p1");
+    expect(config.thresholds.maxRounds).toBe(5);
+    expect(config.escalation.pauseOnAmbiguity).toBe(true);
+    expect(config.escalation.pauseOnConflict).toBe(true);
   });
 
   it("has claude and codex reviewers enabled by default", () => {
@@ -18,10 +21,12 @@ describe("loadConfig", () => {
 
   it("merges partial overrides into defaults", () => {
     const config = loadConfig({
-      thresholds: { stopAt: "p2" },
+      thresholds: { stopAt: "p2", maxRounds: 3 },
     });
     expect(config.thresholds.stopAt).toBe("p2");
+    expect(config.thresholds.maxRounds).toBe(3);
     // Other defaults preserved
+    expect(config.escalation.pauseOnAmbiguity).toBe(true);
     expect(config.reviewers.claude.enabled).toBe(true);
   });
 

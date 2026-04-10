@@ -5,7 +5,7 @@ import { fileURLToPath } from "url";
 import { judge, type GoldenFixture, type JudgeResult } from "./judge";
 import { loadConfig } from "../src/config";
 import { Orchestrator } from "../src/orchestrator";
-import type { DiffScope, SessionState } from "../src/types";
+import type { DiffScope, OrchestratorState } from "../src/types";
 
 const EVALS_DIR = join(dirname(fileURLToPath(import.meta.url)), ".");
 const GOLDEN_DIR = join(EVALS_DIR, "golden");
@@ -35,7 +35,9 @@ async function runFixture(
 
   const stateDir = join(tempDir, ".review-orchestra");
 
-  const config = loadConfig({ thresholds: { stopAt: "p3" } });
+  // Allow fixtures to opt into multiple rounds
+  const maxRounds = (golden as Record<string, unknown>).maxRounds as number ?? 1;
+  const config = loadConfig({ thresholds: { maxRounds, stopAt: "p3" } });
 
   // Build a synthetic scope from the fixture's files
   const fixtureFiles = listFiles(join(tempDir, "src"));
@@ -71,15 +73,15 @@ async function runFixture(
   process.chdir(tempDir);
   const orchestrator = new Orchestrator(config, stateDir, {}, originalCwd);
   try {
-    const reviewResult = await orchestrator.run(scope);
+    await orchestrator.run(scope);
 
     // Read consolidated findings from state — includes findings that were auto-fixed,
     // which summary.remainingFindings omits. Judging post-fix results would score
     // successfully-found-and-fixed issues as misses.
     const statePath = join(stateDir, "state.json");
-    const state: SessionState = JSON.parse(readFileSync(statePath, "utf-8"));
+    const state: OrchestratorState = JSON.parse(readFileSync(statePath, "utf-8"));
 
-    // Aggregate findings across all rounds
+    // Aggregate findings across all rounds (for multi-round evals)
     const findingMap = new Map<string, (typeof state.rounds)[number]["consolidated"][number]>();
     for (const round of state.rounds) {
       for (const f of round.consolidated) {

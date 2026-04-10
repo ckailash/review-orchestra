@@ -12,6 +12,11 @@
     }
   },
   "thresholds": {
-    "stopAt": "p1"
+    "stopAt": "p1",
+    "maxRounds": 5
+  },
+  "escalation": {
+    "pauseOnAmbiguity": true,
+    "pauseOnConflict": true
   }
 }

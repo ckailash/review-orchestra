@@ -27,6 +27,7 @@ export interface ParsedArgs {
   paths: string[];
   commitRef?: string;
   stopAt?: PLevel;
+  maxRounds?: number;
   disabledReviewers: string[];
   onlyReviewer?: string;
   models: Record<string, string>;
@@ -48,6 +49,13 @@ export function parseArgs(input: string): ParsedArgs {
   if (/--dry-run|\bdry run\b/i.test(remaining)) {
     result.dryRun = true;
     remaining = remaining.replace(/--dry-run/g, "").replace(/\bdry run\b/gi, "").trim();
+  }
+
+  // Max rounds: "max 3 rounds"
+  const roundsMatch = remaining.match(/max\s+(\d+)\s+rounds?/i);
+  if (roundsMatch) {
+    result.maxRounds = parseInt(roundsMatch[1], 10);
+    remaining = remaining.replace(roundsMatch[0], "").trim();
   }
 
   // Threshold: "fix everything" → p3, "fix quality issues too" → p2

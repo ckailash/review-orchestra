@@ -17,8 +17,10 @@ async function main(): Promise<void> {
   // Build config overrides from parsed args
   const overrides: Parameters<typeof loadConfig>[0] = {};
 
-  if (args.stopAt) {
-    overrides.thresholds = { stopAt: args.stopAt };
+  if (args.stopAt || args.maxRounds) {
+    overrides.thresholds = {};
+    if (args.stopAt) overrides.thresholds.stopAt = args.stopAt;
+    if (args.maxRounds) overrides.thresholds.maxRounds = args.maxRounds;
   }
 
   if (args.disabledReviewers.length > 0 || args.onlyReviewer || Object.keys(args.models).length > 0) {
@@ -62,7 +64,7 @@ async function main(): Promise<void> {
     console.log(JSON.stringify({
       dryRun: true,
       scope: { type: scope.type, description: scope.description, files: scope.files },
-      config: { reviewers: enabledReviewers, stopAt: config.thresholds.stopAt },
+      config: { reviewers: enabledReviewers, stopAt: config.thresholds.stopAt, maxRounds: config.thresholds.maxRounds },
     }, null, 2));
     return;
   }
@@ -85,9 +87,14 @@ async function main(): Promise<void> {
       const actionable = findings.filter(f => !f.pre_existing);
       console.error(`[review-orchestra] Consolidated: ${actionable.length} actionable, ${findings.length - actionable.length} pre-existing`);
     },
-    onComplete(result) {
-      const actionable = result.findings.filter(f => !f.pre_existing);
-      console.error(`[review-orchestra] Done: round ${result.round}, ${actionable.length} actionable findings, ${result.reviewerErrors.length} reviewer errors`);
+    onFixComplete(round) {
+      console.error(`[review-orchestra] Round ${round} fixes applied`);
+    },
+    async onEscalation(items) {
+      console.error(`[review-orchestra] ${items.length} finding(s) escalated — requires human decision`);
+    },
+    onComplete(summary) {
+      console.error(`[review-orchestra] Done: ${summary.totalRounds} round(s), ${summary.fixedFindings} fixed, ${summary.remainingFindings.length} remaining`);
     },
   };
 
@@ -95,9 +102,9 @@ async function main(): Promise<void> {
   const orchestrator = new Orchestrator(config, stateDir, callbacks, PACKAGE_ROOT);
 
   try {
-    const result = await orchestrator.run(scope);
-    // JSON result on stdout for the skill to parse
-    console.log(JSON.stringify(result, null, 2));
+    const summary = await orchestrator.run(scope);
+    // JSON summary on stdout for the skill to parse
+    console.log(JSON.stringify(summary, null, 2));
   } catch (err) {
     console.error(`[review-orchestra] Fatal: ${err instanceof Error ? err.message : String(err)}`);
     process.exit(1);

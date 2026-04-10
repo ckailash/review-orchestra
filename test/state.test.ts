@@ -24,7 +24,7 @@ describe("StateManager", () => {
     expect(state.scope).toBeNull();
   });
 
-  it("starts a session and sets status to active", () => {
+  it("starts a session and sets status to running", () => {
     const sm = new StateManager(TEST_DIR);
     const scope = {
       type: "branch" as const,
@@ -35,7 +35,7 @@ describe("StateManager", () => {
     };
     sm.start(scope);
     const state = sm.getState();
-    expect(state.status).toBe("active");
+    expect(state.status).toBe("running");
     expect(state.scope).toEqual(scope);
     expect(state.startedAt).toBeTruthy();
   });
@@ -159,14 +159,14 @@ describe("StateManager", () => {
       description: "test",
     });
     sm.newRound();
-    sm.updatePhase("consolidating");
+    sm.updatePhase("fixing");
 
     // Create a new StateManager pointing at the same dir — should load persisted state
     const sm2 = new StateManager(TEST_DIR);
     const state = sm2.getState();
-    expect(state.status).toBe("active");
+    expect(state.status).toBe("running");
     expect(state.currentRound).toBe(1);
-    expect(state.rounds[0].phase).toBe("consolidating");
+    expect(state.rounds[0].phase).toBe("fixing");
   });
 
   it("completes a session", () => {

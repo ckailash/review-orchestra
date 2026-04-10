@@ -22,6 +22,11 @@ export const DEFAULT_CONFIG: Config = {
   },
   thresholds: {
     stopAt: "p1",
+    maxRounds: 5,
+  },
+  escalation: {
+    pauseOnAmbiguity: true,
+    pauseOnConflict: true,
   },
 };
 
@@ -32,6 +37,7 @@ function loadBaseConfig(): Config {
     return {
       reviewers: parsed.reviewers ?? DEFAULT_CONFIG.reviewers,
       thresholds: { ...DEFAULT_CONFIG.thresholds, ...parsed.thresholds },
+      escalation: { ...DEFAULT_CONFIG.escalation, ...parsed.escalation },
     };
   } catch {
     return structuredClone(DEFAULT_CONFIG);
@@ -42,6 +48,7 @@ export function loadConfig(
   overrides?: Partial<{
     reviewers: Record<string, Partial<ReviewerConfig>>;
     thresholds: Partial<Config["thresholds"]>;
+    escalation: Partial<Config["escalation"]>;
   }>
 ): Config {
   const base = loadBaseConfig();
@@ -61,5 +68,6 @@ export function loadConfig(
   return {
     reviewers,
     thresholds: { ...base.thresholds, ...overrides.thresholds },
+    escalation: { ...base.escalation, ...overrides.escalation },
   };
 }
