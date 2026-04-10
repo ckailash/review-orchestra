@@ -172,4 +172,108 @@ describe("detectScope", () => {
       await expect(detectScope(["/etc/passwd"])).rejects.toThrow("Invalid path filters");
     });
   });
+
+  describe("commitMessages", () => {
+    it("populates commitMessages for branch scope", async () => {
+      mockExecFile.mockImplementation((...args: unknown[]) => {
+        const cmd = argsToCmd(args);
+        if (cmd === "git diff --name-only") return "";
+        if (cmd === "git diff --cached --name-only") return "";
+        if (cmd === "git ls-files --others --exclude-standard") return "";
+        if (cmd === "git rev-parse --abbrev-ref HEAD") return "feat/auth\n";
+        if (cmd === "git symbolic-ref refs/remotes/origin/HEAD") {
+          throw new Error("not set");
+        }
+        if (cmd === "git rev-parse --verify main") return "abc1234\n";
+        if (cmd === "git log main..HEAD --oneline") {
+          return "abc1234 add auth\ndef5678 add middleware\n";
+        }
+        if (cmd === "git diff main...HEAD --name-only") {
+          return "src/auth/middleware.ts\n";
+        }
+        if (cmd === "git diff main...HEAD") {
+          return "diff --git a/src/auth/middleware.ts b/src/auth/middleware.ts\n+new auth code\n";
+        }
+        return "";
+      });
+
+      const scope = await detectScope();
+      expect(scope.type).toBe("branch");
+      expect(scope.commitMessages).toBe(
+        "abc1234 add auth\ndef5678 add middleware"
+      );
+    });
+
+    it("populates commitMessages for uncommitted scope", async () => {
+      mockExecFile.mockImplementation((...args: unknown[]) => {
+        const cmd = argsToCmd(args);
+        if (cmd === "git diff --name-only") return "src/foo.ts\n";
+        if (cmd === "git diff --cached --name-only") return "";
+        if (cmd === "git ls-files --others --exclude-standard") return "";
+        if (cmd === "git diff HEAD") {
+          return "diff --git a/src/foo.ts b/src/foo.ts\n+added line\n";
+        }
+        if (cmd === "git rev-parse --abbrev-ref HEAD") return "feat/auth\n";
+        if (cmd === "git log --oneline -10 HEAD") {
+          return "aaa1111 recent commit\nbbb2222 older commit\n";
+        }
+        return "";
+      });
+
+      const scope = await detectScope();
+      expect(scope.type).toBe("uncommitted");
+      expect(scope.commitMessages).toBe(
+        "aaa1111 recent commit\nbbb2222 older commit"
+      );
+    });
+
+    it("populates commitMessages for commit scope", async () => {
+      mockExecFile.mockImplementation((...args: unknown[]) => {
+        const cmd = argsToCmd(args);
+        if (cmd === "git rev-parse --verify abc1234") return "abc1234\n";
+        if (cmd === "git diff abc1234..HEAD --name-only") {
+          return "src/foo.ts\n";
+        }
+        if (cmd === "git diff abc1234..HEAD") {
+          return "diff --git a/src/foo.ts b/src/foo.ts\n+changed\n";
+        }
+        if (cmd === "git log --oneline abc1234..HEAD") {
+          return "def5678 fix bug\nghi9012 add feature\n";
+        }
+        return "";
+      });
+
+      const scope = await detectScope([], "abc1234");
+      expect(scope.type).toBe("commit");
+      expect(scope.commitMessages).toBe(
+        "def5678 fix bug\nghi9012 add feature"
+      );
+    });
+
+    it("sets commitMessages to undefined when git log fails on fresh repo", async () => {
+      mockExecFile.mockImplementation((...args: unknown[]) => {
+        const cmd = argsToCmd(args);
+        if (cmd === "git diff --name-only") return "src/foo.ts\n";
+        if (cmd === "git diff --cached --name-only") return "";
+        if (cmd === "git ls-files --others --exclude-standard") return "";
+        // HEAD doesn't exist on fresh repo — fall back to --cached
+        if (cmd === "git diff HEAD") throw new Error("bad revision HEAD");
+        if (cmd === "git diff --cached") {
+          return "diff --git a/src/foo.ts b/src/foo.ts\n+new file\n";
+        }
+        if (cmd === "git rev-parse --abbrev-ref HEAD") return "main\n";
+        // git log fails on fresh repo with no commits
+        if (cmd === "git log --oneline -10 HEAD") {
+          throw new Error("bad default revision HEAD");
+        }
+        return "";
+      });
+
+      const scope = await detectScope();
+      expect(scope.type).toBe("uncommitted");
+      expect(scope.commitMessages).toBeUndefined();
+      expect(scope.files).toContain("src/foo.ts");
+      expect(scope.diff).toContain("new file");
+    });
+  });
 });

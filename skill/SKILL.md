@@ -36,6 +36,15 @@ Parse the JSON summary from stdout and present to the user:
 5. **Escalations** — findings needing human decisions. Present each with its options and ask the user to decide.
 6. **Suggested action** — what to do next (commit, push, create PR, merge)
 
+## Step 3: Fixing Guidelines
+
+When fixing findings, follow these guardrails to avoid common overcorrection patterns:
+
+1. Do not weaken or delete existing tests to resolve a finding. If a finding says a test is wrong, verify the test's intent before modifying it.
+2. Do not add new features, abstractions, or utilities beyond what is needed to fix the specific finding.
+3. Do not refactor code that is not directly part of the finding. Stay surgical.
+4. If a fix requires changing the public API or type signatures, escalate rather than proceeding.
+
 ## Error handling
 
 If the CLI exits with a non-zero code, read stderr and present the error. Common issues:

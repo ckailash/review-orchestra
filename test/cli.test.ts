@@ -27,11 +27,6 @@ describe("parseArgs", () => {
     expect(parseArgs("--dry-run").dryRun).toBe(true);
   });
 
-  it("parses max rounds", () => {
-    const result = parseArgs("max 3 rounds");
-    expect(result.maxRounds).toBe(3);
-  });
-
   it("parses 'fix everything' threshold", () => {
     const result = parseArgs("fix everything");
     expect(result.stopAt).toBe("p3");
@@ -122,9 +117,8 @@ describe("parseArgs", () => {
   });
 
   it("parses combined args", () => {
-    const result = parseArgs("src/auth/ max 3 rounds only claude use opus dry run");
+    const result = parseArgs("src/auth/ only claude use opus dry run");
     expect(result.paths).toEqual(["src/auth/"]);
-    expect(result.maxRounds).toBe(3);
     expect(result.onlyReviewer).toBe("claude");
     expect(result.models).toEqual({ claude: "opus" });
     expect(result.dryRun).toBe(true);

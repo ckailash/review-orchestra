@@ -40,7 +40,13 @@
           "description": { "type": "string" },
           "suggestion": { "type": "string" },
           "reviewer": { "type": "string" },
-          "pre_existing": { "type": "boolean", "default": false }
+          "pre_existing": { "type": "boolean", "default": false },
+          "expected": { "type": "string" },
+          "observed": { "type": "string" },
+          "evidence": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
         }
       }
     },

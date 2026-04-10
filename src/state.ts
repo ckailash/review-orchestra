@@ -10,24 +10,26 @@ import { join } from "path";
 import type {
   DiffScope,
   Finding,
-  OrchestratorState,
+  SessionState,
   ReviewOutput,
   Round,
   RoundPhase,
 } from "./types";
 
-function defaultState(): OrchestratorState {
+function defaultState(): SessionState {
   return {
+    sessionId: "",
     status: "idle",
     currentRound: 0,
     rounds: [],
     scope: null,
+    worktreeHash: "",
     startedAt: "",
     completedAt: null,
   };
 }
 
-function isValidState(obj: unknown): obj is OrchestratorState {
+function isValidState(obj: unknown): obj is SessionState {
   if (typeof obj !== "object" || obj === null) return false;
   const s = obj as Record<string, unknown>;
   return (
@@ -38,7 +40,7 @@ function isValidState(obj: unknown): obj is OrchestratorState {
 }
 
 export class StateManager {
-  private state: OrchestratorState;
+  private state: SessionState;
   private stateFile: string;
   private lockFile: string;
 
@@ -48,7 +50,7 @@ export class StateManager {
     this.state = this.load();
   }
 
-  private load(): OrchestratorState {
+  private load(): SessionState {
     if (!existsSync(this.stateFile)) return defaultState();
 
     try {
@@ -61,7 +63,7 @@ export class StateManager {
     }
   }
 
-  getState(): OrchestratorState {
+  getState(): SessionState {
     return this.state;
   }
 
@@ -69,7 +71,7 @@ export class StateManager {
     this.acquireLock();
     // Reset state for a fresh run — previous round data is already persisted on disk
     this.state = defaultState();
-    this.state.status = "running";
+    this.state.status = "active";
     this.state.scope = scope;
     this.state.startedAt = new Date().toISOString();
     this.persist();
@@ -81,7 +83,6 @@ export class StateManager {
       phase: "reviewing",
       reviews: {},
       consolidated: [],
-      fixReport: null,
       startedAt: new Date().toISOString(),
       completedAt: null,
     };
@@ -127,7 +128,7 @@ export class StateManager {
   }
 
   fail(): void {
-    this.state.status = "failed";
+    this.state.status = "completed";
     this.state.completedAt = new Date().toISOString();
     this.persist();
     this.releaseLock();

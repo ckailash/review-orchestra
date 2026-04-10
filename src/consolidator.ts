@@ -53,6 +53,14 @@ function deduplicationKey(f: Finding): string {
   return `${f.file}:${f.line}:${f.title.toLowerCase().trim()}`;
 }
 
+function countPopulatedOptionalFields(f: Finding): number {
+  let count = 0;
+  if (f.expected != null) count++;
+  if (f.observed != null) count++;
+  if (Array.isArray(f.evidence) && f.evidence.length > 0) count++;
+  return count;
+}
+
 export function consolidate(findings: Finding[], diff: string): Finding[] {
   if (findings.length === 0) return [];
 
@@ -64,9 +72,15 @@ export function consolidate(findings: Finding[], diff: string): Finding[] {
   for (const finding of findings) {
     const key = deduplicationKey(finding);
     const existing = deduped.get(key);
-    if (
-      !existing ||
+    if (!existing) {
+      deduped.set(key, finding);
+    } else if (
       P_LEVEL_ORDER[finding.severity] < P_LEVEL_ORDER[existing.severity]
+    ) {
+      deduped.set(key, finding);
+    } else if (
+      P_LEVEL_ORDER[finding.severity] === P_LEVEL_ORDER[existing.severity] &&
+      countPopulatedOptionalFields(finding) > countPopulatedOptionalFields(existing)
     ) {
       deduped.set(key, finding);
     }

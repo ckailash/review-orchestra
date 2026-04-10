@@ -3,6 +3,7 @@
 **Status:** Planned (not started)
 **Priority:** Pre-release — critical for user trust
 **Written:** 2026-03-14
+**Updated:** 2026-04-07 — uplifted after consolidated review (Claude + Codex): removed auto-mode fix infrastructure, aligned findings.jsonl with finding-quality and supervised-flow plans, fixed storage scope, reframed visibility for supervised mode, added Feature 3 deferral
 
 ---
 
@@ -12,7 +13,7 @@ Two gaps that block trust in the system:
 
 1. **No learning loop** — findings from reviews disappear after each run. Patterns across runs aren't captured. No mechanism to turn recurring findings into rules that prevent the same bugs from being written.
 
-2. **Poor visibility during execution** — runs take 10-14 minutes. The user gets no feedback unless they press Ctrl+O to check background task output. For a system that modifies code autonomously across multiple rounds, this opacity is a dealbreaker.
+2. **Poor visibility during review execution** — while reviewers run in parallel, the user gets no feedback unless they press Ctrl+O to check background task output. Even though supervised rounds are short (1-3 minutes), knowing which reviewer is done and which is still running matters for user trust.
 
 ---
 
@@ -21,63 +22,72 @@ Two gaps that block trust in the system:
 ### Storage Architecture
 
 ```
-~/.review-orchestra/              # user-scope (default)
+~/.review-orchestra/              # user-scope (cross-project learnings)
 ├── findings.jsonl                # append-only, all findings across all projects
 └── learnings.md                  # distilled rules, LLM-generated, human-reviewed
 
-<project>/.review-orchestra/      # project-scope
-├── runs/
-│   ├── 2026-03-14T10-00-00/
-│   │   ├── state.json           # existing round/finding state
-│   │   ├── fix-diffs/
-│   │   │   ├── round-1.patch    # git diff after round 1 fixer
-│   │   │   └── round-2.patch
-│   │   └── summary.json
-│   └── ...
-├── findings.jsonl                # project-scoped findings (if installed at project scope)
-└── learnings.md                  # project-scoped learnings
+<project>/.review-orchestra/      # project-scope (per-session review artifacts, existing)
+├── session.json                  # current session state
+├── round-1/
+│   ├── claude-review.json
+│   ├── codex-review.json
+│   └── consolidated.json
+└── round-2/
+    └── ...
 ```
 
-### Scope follows skill installation
+### Scope: user-level by default
 
-- Skill at `~/.claude/skills/` → findings at `~/.review-orchestra/findings.jsonl`
-- Skill at `.claude/skills/` → findings at `.review-orchestra/findings.jsonl`
-- Let user choose scope at install time (add an install command or document both paths)
+The supported install mode (per setup-doctor.md) creates a user-level skill symlink at `~/.claude/skills/review-orchestra`. Findings are stored at user scope:
+
+- `~/.review-orchestra/findings.jsonl` — cross-project finding history for distillation
+- `~/.review-orchestra/learnings.md` — distilled rules
+
+Per-session review artifacts (round data, consolidated findings) remain project-scoped in `<project>/.review-orchestra/` — this is the existing layout from architecture.md and supervised-flow.md.
+
+**Deferred: project-scope findings.** A future project-scope install mode (skill at `.claude/skills/`) could store findings at `.review-orchestra/findings.jsonl` for project-local distillation. This requires adding project-scope install support to setup-doctor.md first — the install story must drive storage scope, not the other way around.
 
 ### findings.jsonl format
 
 One JSON object per line. Each finding includes run context:
 
 ```jsonl
-{"timestamp":"2026-03-14T10:00:00Z","project":"/Users/kailash/code/myapp","run_id":"2026-03-14T10-00-00","round":1,"finding":{"id":"f-001","file":"src/auth.ts","line":42,"confidence":"verified","impact":"critical","category":"security","title":"SQL injection","description":"...","suggestion":"...","reviewer":"claude"},"fix_applied":true,"fix_verified":true,"fix_diff":"--- a/src/auth.ts\n+++ b/src/auth.ts\n@@ ...\n"}
+{"timestamp":"2026-03-14T10:00:00Z","project":"/Users/kailash/code/myapp","sessionId":"20260314-100000","round":1,"finding":{"id":"r1-f-001","file":"src/auth.ts","line":42,"confidence":"verified","impact":"critical","category":"security","title":"SQL injection via unsanitized user input","expected":"Database queries use parameterized inputs ($1 placeholders) for all user-provided values","observed":"userId is interpolated directly into the SQL query string via template literal","description":"The userId parameter comes from the request URL and is attacker-controlled.","suggestion":"Use parameterized queries: db.query('SELECT * FROM users WHERE id = $1', [userId])","evidence":["Line 42: `db.query(`SELECT * FROM users WHERE id = ${userId}`)` — userId comes from req.params without validation"],"reviewer":"claude"},"status":"new","resolved_in_round":null}
 ```
 
 Key fields beyond the finding itself:
 - `project` — which repo
-- `fix_applied` — did the fixer attempt this?
-- `fix_verified` — was the finding absent in the next round?
-- `fix_diff` — the actual code change (inline or reference to patch file)
+- `sessionId` — session that produced this finding
+- `round` — which round the finding was first detected in
+- `status` — `new` or `persisting` (matches the canonical `ReviewResult` model from supervised-flow.md where these are the only two statuses on active findings)
+- `resolved_in_round` — populated retroactively: when a subsequent round's `resolvedFindings` array contains this finding (matched by file + title), this field is set to that round number. Null if the finding is still active or the session ended before re-review. This is a findings.jsonl enrichment — the `ReviewResult` itself doesn't carry this field, but findings.jsonl needs it for cross-session distillation.
+- `expected` — desired state (optional, from finding-quality-enhancement plan)
+- `observed` — actual state (optional)
+- `evidence` — supporting evidence array (optional)
 
-### Fix diff capture
+**Alignment with `ReviewResult`:** In the canonical model (architecture.md, supervised-flow.md), active findings have status `new` or `persisting`. Resolved findings appear in a separate `resolvedFindings` array — they are not tagged `status: "resolved"` in the main findings list. findings.jsonl follows this: each line is written when a finding first appears (status `new`) or persists across rounds (status `persisting`). Resolution is tracked via `resolved_in_round` being backfilled, not via a status change.
 
-After each fixer pass, before the next review round:
-```typescript
-const patch = execSync("git diff").toString();
-writeFileSync(`${runDir}/fix-diffs/round-${round}.patch`, patch);
-```
-
-Cheap, deterministic, no LLM calls. Gives us "when you see X, do Y" pairs.
+Finding IDs are round-scoped for new findings (`r1-f-001`) and stable for persisting findings (per supervised-flow.md). This matches the `Finding` type defined in the finding-quality plan.
 
 ### Distillation
 
 Command: `review-orchestra distill` or `/review-orchestra distill`
 
-Reads findings.jsonl, groups by category/pattern, identifies recurring issues, produces `learnings.md`:
+Reads findings.jsonl, groups by category/pattern, identifies recurring issues, produces `learnings.md`.
+
+**Data sources:** Distillation works from the enriched finding fields — not from fix diffs. In supervised mode, the orchestrator Claude fixes code directly in conversation; there are no captured patches to learn from. Instead, distill leverages:
+
+- **Finding patterns** — recurring titles, categories, and file patterns across projects
+- **Expected/observed framing** — when populated, these fields articulate what "correct" looks like, giving distill better signal for rule generation than title + description alone
+- **Evidence** — reviewer-provided evidence strengthens the "why" behind generated rules
+- **Round outcomes** — `status` and `resolved_in_round` fields show which findings were actually resolved across rounds, giving a signal for which categories of issues the team consistently fixes (vs. skips)
+
+**Trade-off acknowledged:** Without fixer diffs, distill cannot generate verified "when you see X, apply this exact code change" recipes. The `suggestion` field (reviewer-provided) is the closest proxy, but it's a recommendation, not a proven fix. This is acceptable — the goal of learnings is prevention rules for CLAUDE.md, not fix templates.
 
 ```markdown
 # Learnings
 
-## SQL Injection (seen 12 times across 4 projects)
+## SQL Injection (seen 12 times across 4 projects, resolved 11 times)
 **Pattern:** String interpolation in SQL queries, especially with template literals.
 **Rule:** Always use parameterized queries. Never interpolate user input into SQL strings.
 **Suggested CLAUDE.md rule:**
@@ -100,13 +110,13 @@ Reads findings.jsonl, groups by category/pattern, identifies recurring issues, p
 
 ---
 
-## Feature 2: Execution Visibility
+## Feature 2: Within-Round Execution Visibility
 
 ### Problem
 
-Claude Code's skill execution model: skill → bash command → output when done.
-During execution, stderr output exists but isn't surfaced well. Users see nothing
-for 10-14 minutes unless they actively check.
+Claude Code's skill execution model: skill → bash command → output when done. During `review-orchestra review`, reviewers run in parallel for 1-3 minutes. The user gets no feedback on which reviewer finished first or whether one is hanging unless they press Ctrl+O to check stderr.
+
+Note: the supervised flow already solves round-to-round visibility — the skill presents findings after each `review-orchestra review` invocation, the user decides, and the skill runs the next round. There's no multi-round opacity problem. The remaining gap is within a single review invocation.
 
 ### What we control
 
@@ -116,32 +126,23 @@ The CLI already emits status to stderr:
 [review-orchestra] claude: 15 findings
 [review-orchestra] codex: 12 findings
 [review-orchestra] Consolidated: 27 actionable, 0 pre-existing
-[review-orchestra] Round 1 fixes applied
 ```
 
 ### Improvements within our control
 
-1. **More granular status updates:**
+1. **Per-reviewer progress on stderr:**
    - `[review-orchestra] claude: reviewing... (started 30s ago)`
    - `[review-orchestra] codex: reviewing... (started 30s ago)`
-   - `[review-orchestra] fixer: applying fixes for 15 findings...`
-   - `[review-orchestra] Round 2: re-reviewing post-fix code...`
+   - `[review-orchestra] claude: done (15 findings, 45s)`
+   - `[review-orchestra] codex: done (12 findings, 62s)`
+   - `[review-orchestra] consolidating...`
 
-2. **Progress summary between rounds:**
+2. **Elapsed time per reviewer** (but NOT estimates — per CLAUDE.md):
    ```
-   [review-orchestra] Round 1 complete: 27 findings, 27 sent to fixer
-   [review-orchestra] Round 2 complete: 7 new findings (74% reduction), 7 sent to fixer
-   [review-orchestra] Round 3 complete: 6 new findings, 2 remaining at P0/P1 threshold
-   ```
-
-3. **Elapsed time per phase** (but NOT estimates — per CLAUDE.md):
-   ```
-   [review-orchestra] Round 1 review: done (claude 45s, codex 62s)
-   [review-orchestra] Round 1 fixes: done (38s)
+   [review-orchestra] review complete (claude 45s, codex 62s, consolidation 1s)
    ```
 
-4. **Intermediate results file** — write a `.review-orchestra/progress.json` that updates
-   in real-time. A separate watcher process or the skill itself could poll this.
+3. **Intermediate results file** — write a `.review-orchestra/progress.json` that updates in real-time during review. Shows which reviewers are running, which are done, and preliminary finding counts. Useful if the user checks via Ctrl+O or a separate terminal.
 
 ### What we DON'T control (Claude Code UX)
 
@@ -149,33 +150,54 @@ The CLI already emits status to stderr:
 - Whether there's a "streaming output" mode for skills
 - Whether skills can push updates to the conversation mid-execution
 
-### Investigate
+---
 
-- Does Claude Code stream stderr from bash commands in real-time, or buffer until completion?
-- Can a skill use multiple sequential bash calls instead of one long-running call,
-  so Claude Code shows progress between calls?
-- Could the SKILL.md be restructured to run one round at a time via separate bash calls,
-  giving Claude the ability to present intermediate results?
+## Feature 3: Run Visualizer — Deferred (data contract defined)
 
-### Alternative: round-by-round skill execution
+The uplift review proposed a run visualizer as Feature 3. Implementation is deferred to post-release, but the data contract is defined now so the artifact formats remain stable.
 
-Instead of one long `review-orchestra` bash call, the SKILL.md could instruct Claude to:
-1. Run `review-orchestra --round 1` → get findings
-2. Present round 1 results to user
-3. Run `review-orchestra --round 2 --continue` → get findings
-4. Present round 2 results
-5. ...until convergence
+**Rationale for deferral:** Supervised sessions are short (typically 1-3 rounds) and low-artifact. The user sees findings in conversation after each round, decides what to fix, and re-reviews. The session summary in SKILL.md Step 7 provides the round-over-round narrative. A standalone visualizer adds minimal value today over stderr output (Feature 2), the SKILL.md session summary, and the artifacts already saved in `.review-orchestra/round-N/`.
 
-This gives natural visibility between rounds but adds complexity to the CLI
-(needs `--continue` mode with state persistence). Trade-off worth exploring.
+**When to build:** When supervised sessions regularly exceed 3-4 rounds, or when users want to compare sessions across time ("how did this week's reviews compare to last week's?").
+
+### Data contract
+
+The visualizer reads two data sources, both already produced by Features 1 and 2:
+
+**1. Per-session artifacts** (`<project>/.review-orchestra/`):
+
+| File | What it provides |
+|------|-----------------|
+| `session.json` | Session ID, scope, round count, timestamps, worktree hashes |
+| `round-N/consolidated.json` | Per-round findings with IDs, severity, status (`new`/`persisting`), reviewer attribution |
+| `round-N/claude-review.json` | Raw Claude reviewer output (per-reviewer breakdown) |
+| `round-N/codex-review.json` | Raw Codex reviewer output |
+| `summary.json` | Final session summary (rounds completed, findings fixed/skipped/remaining) |
+| `progress.json` | Within-round reviewer progress (transient — only present during active review) |
+
+**2. Cross-project findings** (`~/.review-orchestra/findings.jsonl`):
+- One line per finding with project, session, round, status, `resolved_in_round`
+- Enables cross-session and cross-project trend views
+
+### Visualizer spec (for future implementation)
+
+- **Format:** Static HTML page generated by `review-orchestra viz`, self-contained (inline CSS/JS), openable in any browser
+- **CLI:** `review-orchestra viz` — reads current project's `.review-orchestra/` artifacts, generates `review-orchestra-report.html`
+- **CLI (cross-project):** `review-orchestra viz --all` — reads `~/.review-orchestra/findings.jsonl`, shows cross-project trends
+- **Views:**
+  - **Phase timeline** — horizontal timeline showing review and consolidation phases per round, with elapsed times per reviewer
+  - **Findings per round** — grouped by severity with P0-P3 badges, showing new/persisting/resolved flow across rounds
+  - **Resolution tracking** — which findings were resolved in which round, skip rate by category
+  - **Cross-project trends** (--all only) — recurring categories, resolution rates, top file hotspots
 
 ---
 
 ## Implementation Order
 
-1. Fix diff capture (trivial — add git diff after fixer, save to run dir)
-2. findings.jsonl append (trivial — write one line per finding after each run)
-3. More granular stderr status updates (small — improve CLI logging)
-4. Round-by-round execution mode investigation (research — test what Claude Code can do)
-5. Distillation command (medium — LLM summarization of findings.jsonl)
-6. Install-time scope selection (small — document or add install command)
+1. findings.jsonl append (trivial — write one line per finding after each round, using enriched finding fields)
+2. `~/.review-orchestra/` directory creation (trivial — ensure user-scope dir exists on first append)
+3. Per-reviewer stderr progress (small — improve CLI logging within `review-orchestra review`)
+4. Elapsed time per reviewer on stderr (small — timer around each reviewer spawn)
+5. `progress.json` intermediate results file (small — write during review, clear on completion)
+6. Distillation command (medium — LLM summarization of findings.jsonl with enriched fields)
+7. `distill_every_n_runs` auto-trigger (small — counter in user-scope config)

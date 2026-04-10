@@ -45,7 +45,7 @@ function normalizeFinding(
   const str = (v: unknown, fallback: string): string =>
     typeof v === "string" ? v : (v != null ? String(v) : fallback);
 
-  return {
+  const finding: Finding = {
     id: str(raw.id, "") || `${reviewer}-${index}`,
     file: str(raw.file, ""),
     line: typeof raw.line === "number" ? raw.line : (parseInt(String(raw.line), 10) || 0),
@@ -59,6 +59,21 @@ function normalizeFinding(
     reviewer,
     pre_existing: typeof raw.pre_existing === "boolean" ? raw.pre_existing : false,
   };
+
+  if (typeof raw.expected === "string") {
+    finding.expected = raw.expected;
+  }
+  if (typeof raw.observed === "string") {
+    finding.observed = raw.observed;
+  }
+  if (Array.isArray(raw.evidence)) {
+    const filtered = raw.evidence.filter((e): e is string => typeof e === "string");
+    if (filtered.length > 0) {
+      finding.evidence = filtered;
+    }
+  }
+
+  return finding;
 }
 
 export function parseReviewerOutput(raw: string, reviewer: string): Finding[] {

@@ -123,6 +123,112 @@ describe("consolidate", () => {
     });
   });
 
+  describe("equal severity tie-breaking on optional field richness", () => {
+    it("prefers the finding with more populated optional fields when severity is equal (VAL-CONSOL-001)", () => {
+      const sparse = makeFinding({
+        id: "c-001",
+        reviewer: "claude",
+        severity: "p1",
+        confidence: "likely",
+        impact: "functional",
+      });
+      const rich = makeFinding({
+        id: "x-001",
+        reviewer: "codex",
+        severity: "p1",
+        confidence: "likely",
+        impact: "functional",
+        expected: "Parameterized queries should be used",
+        observed: "String concatenation used for SQL",
+        evidence: ["Line 42: db.query('SELECT * FROM users WHERE id = ' + userId)"],
+      });
+
+      const result = consolidate([sparse, rich], simpleDiff);
+      expect(result).toHaveLength(1);
+      expect(result[0].expected).toBe("Parameterized queries should be used");
+      expect(result[0].observed).toBe("String concatenation used for SQL");
+      expect(result[0].evidence).toEqual(["Line 42: db.query('SELECT * FROM users WHERE id = ' + userId)"]);
+    });
+
+    it("higher severity wins even with fewer optional fields than lower-severity duplicate (VAL-CONSOL-003)", () => {
+      const highSev = makeFinding({
+        id: "c-001",
+        reviewer: "claude",
+        severity: "p0",
+        confidence: "verified",
+        impact: "critical",
+        // no optional fields
+      });
+      const lowSevRich = makeFinding({
+        id: "x-001",
+        reviewer: "codex",
+        severity: "p2",
+        confidence: "possible",
+        impact: "functional",
+        expected: "Should use parameterized queries",
+        observed: "Uses string concat",
+        evidence: ["Line 42 shows the issue"],
+      });
+
+      const result = consolidate([highSev, lowSevRich], simpleDiff);
+      expect(result).toHaveLength(1);
+      expect(result[0].severity).toBe("p0");
+      expect(result[0].expected).toBeUndefined();
+      expect(result[0].observed).toBeUndefined();
+      expect(result[0].evidence).toBeUndefined();
+    });
+
+    it("preserves first-in order when severity and richness are equal (VAL-CONSOL-004)", () => {
+      const first = makeFinding({
+        id: "c-001",
+        reviewer: "claude",
+        severity: "p1",
+        confidence: "likely",
+        impact: "functional",
+        expected: "First reviewer expected",
+      });
+      const second = makeFinding({
+        id: "x-001",
+        reviewer: "codex",
+        severity: "p1",
+        confidence: "likely",
+        impact: "functional",
+        expected: "Second reviewer expected",
+      });
+
+      const result = consolidate([first, second], simpleDiff);
+      expect(result).toHaveLength(1);
+      expect(result[0].expected).toBe("First reviewer expected");
+      expect(result[0].reviewer).toBe("claude");
+    });
+
+    it("existing behavior: higher severity wins (VAL-CONSOL-002)", () => {
+      const findings: Finding[] = [
+        makeFinding({
+          id: "c-001",
+          reviewer: "claude",
+          severity: "p2",
+          confidence: "possible",
+          impact: "functional",
+          expected: "Should be safe",
+          observed: "Not safe",
+        }),
+        makeFinding({
+          id: "x-001",
+          reviewer: "codex",
+          severity: "p0",
+          confidence: "verified",
+          impact: "critical",
+        }),
+      ];
+
+      const result = consolidate(findings, simpleDiff);
+      expect(result).toHaveLength(1);
+      expect(result[0].severity).toBe("p0");
+      expect(result[0].reviewer).toBe("codex");
+    });
+  });
+
   describe("empty inputs", () => {
     it("returns empty array for no findings", () => {
       const result = consolidate([], simpleDiff);

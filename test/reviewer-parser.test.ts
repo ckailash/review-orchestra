@@ -283,6 +283,160 @@ That's all I found.`;
     expect(result[0].title).toBe("Bug");
   });
 
+  it("preserves expected, observed, and evidence when all provided", () => {
+    const raw = JSON.stringify({
+      findings: [
+        {
+          id: "f-quality",
+          file: "src/foo.ts",
+          line: 10,
+          confidence: "verified",
+          impact: "critical",
+          category: "logic",
+          title: "Wrong return",
+          description: "Returns null instead of empty array",
+          suggestion: "Return []",
+          expected: "Function returns an empty array when input is empty",
+          observed: "Function returns null when input is empty",
+          evidence: ["Line 10: return null;", "Caller at line 50 does .length on result"],
+        },
+      ],
+    });
+
+    const result = parseReviewerOutput(raw, "test-reviewer");
+    expect(result).toHaveLength(1);
+    expect(result[0].expected).toBe("Function returns an empty array when input is empty");
+    expect(result[0].observed).toBe("Function returns null when input is empty");
+    expect(result[0].evidence).toEqual(["Line 10: return null;", "Caller at line 50 does .length on result"]);
+  });
+
+  it("parses finding without new fields (backward compat)", () => {
+    const raw = JSON.stringify({
+      findings: [
+        {
+          id: "f-old",
+          file: "src/bar.ts",
+          line: 5,
+          confidence: "likely",
+          impact: "functional",
+          category: "logic",
+          title: "Off by one",
+          description: "Loop goes one too far",
+          suggestion: "Use < instead of <=",
+        },
+      ],
+    });
+
+    const result = parseReviewerOutput(raw, "test-reviewer");
+    expect(result).toHaveLength(1);
+    expect(result[0].expected).toBeUndefined();
+    expect(result[0].observed).toBeUndefined();
+    expect(result[0].evidence).toBeUndefined();
+    // Ensure the key is not present at all on the object
+    expect("expected" in result[0]).toBe(false);
+    expect("observed" in result[0]).toBe(false);
+    expect("evidence" in result[0]).toBe(false);
+  });
+
+  it("normalizes non-string expected/observed to undefined", () => {
+    const raw = JSON.stringify({
+      findings: [
+        {
+          id: "f-bad-types",
+          file: "src/baz.ts",
+          line: 20,
+          confidence: "possible",
+          impact: "quality",
+          category: "style",
+          title: "Bad types",
+          description: "desc",
+          suggestion: "fix",
+          expected: 42,
+          observed: null,
+        },
+      ],
+    });
+
+    const result = parseReviewerOutput(raw, "test-reviewer");
+    expect(result).toHaveLength(1);
+    expect(result[0].expected).toBeUndefined();
+    expect(result[0].observed).toBeUndefined();
+    expect("expected" in result[0]).toBe(false);
+    expect("observed" in result[0]).toBe(false);
+  });
+
+  it("normalizes non-array evidence to undefined", () => {
+    const raw = JSON.stringify({
+      findings: [
+        {
+          id: "f-bad-ev",
+          file: "src/qux.ts",
+          line: 30,
+          confidence: "likely",
+          impact: "functional",
+          category: "logic",
+          title: "Bad evidence",
+          description: "desc",
+          suggestion: "fix",
+          evidence: "single string",
+        },
+      ],
+    });
+
+    const result = parseReviewerOutput(raw, "test-reviewer");
+    expect(result).toHaveLength(1);
+    expect(result[0].evidence).toBeUndefined();
+    expect("evidence" in result[0]).toBe(false);
+  });
+
+  it("filters mixed types in evidence array to valid strings only", () => {
+    const raw = JSON.stringify({
+      findings: [
+        {
+          id: "f-mixed-ev",
+          file: "src/mixed.ts",
+          line: 40,
+          confidence: "verified",
+          impact: "critical",
+          category: "security",
+          title: "Mixed evidence",
+          description: "desc",
+          suggestion: "fix",
+          evidence: ["valid", 42, null],
+        },
+      ],
+    });
+
+    const result = parseReviewerOutput(raw, "test-reviewer");
+    expect(result).toHaveLength(1);
+    expect(result[0].evidence).toEqual(["valid"]);
+  });
+
+  it("allows partial field population (expected without observed)", () => {
+    const raw = JSON.stringify({
+      findings: [
+        {
+          id: "f-partial",
+          file: "src/partial.ts",
+          line: 50,
+          confidence: "likely",
+          impact: "functional",
+          category: "logic",
+          title: "Partial fields",
+          description: "desc",
+          suggestion: "fix",
+          expected: "Should return 42",
+        },
+      ],
+    });
+
+    const result = parseReviewerOutput(raw, "test-reviewer");
+    expect(result).toHaveLength(1);
+    expect(result[0].expected).toBe("Should return 42");
+    expect(result[0].observed).toBeUndefined();
+    expect("observed" in result[0]).toBe(false);
+  });
+
   it("generates ids when missing", () => {
     const raw = JSON.stringify({
       findings: [

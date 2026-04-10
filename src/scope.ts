@@ -141,12 +141,22 @@ export async function detectScope(
       ? git("diff", range, "--", ...safePaths)
       : git("diff", range);
     checkDiffSize(diff);
+
+    let commitMessages: string | undefined;
+    try {
+      const logOutput = git("log", "--oneline", `${from}${separator}${to}`);
+      commitMessages = logOutput || undefined;
+    } catch {
+      commitMessages = undefined;
+    }
+
     return {
       type: "commit",
       diff,
       files,
       baseBranch: from,
       description: `Changes in ${description}`,
+      commitMessages,
     };
   }
 
@@ -183,12 +193,22 @@ export async function detectScope(
     const diff = [trackedDiff, ...untrackedDiffs].filter(Boolean).join("\n");
     checkDiffSize(diff);
     const branch = git("rev-parse", "--abbrev-ref", "HEAD");
+
+    let commitMessages: string | undefined;
+    try {
+      const logOutput = git("log", "--oneline", "-10", "HEAD");
+      commitMessages = logOutput || undefined;
+    } catch {
+      commitMessages = undefined;
+    }
+
     return {
       type: "uncommitted",
       diff,
       files,
       baseBranch: branch,
       description: `Uncommitted changes on ${branch}`,
+      commitMessages,
     };
   }
 
@@ -212,12 +232,17 @@ export async function detectScope(
           ? git("diff", `${baseBranch}...HEAD`, "--", ...safePaths)
           : git("diff", `${baseBranch}...HEAD`);
         checkDiffSize(diff);
+
+        // commitsAhead already contains the git log output we need
+        const commitMessages = commitsAhead || undefined;
+
         return {
           type: "branch",
           diff,
           files,
           baseBranch,
           description: `Branch ${branch} vs ${baseBranch}`,
+          commitMessages,
         };
       }
     }

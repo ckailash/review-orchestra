@@ -17,10 +17,13 @@ You MUST output valid JSON with this structure:
       "line": 42,
       "confidence": "verified|likely|possible|speculative",
       "impact": "critical|functional|quality|nitpick",
-      "category": "security|logic|performance|error-handling|style|...",
+      "category": "security|logic|performance|error-handling|design_intent|style|...",
       "title": "Short title of the issue",
       "description": "Detailed description of the problem",
-      "suggestion": "Concrete fix or improvement suggestion"
+      "suggestion": "Concrete fix or improvement suggestion",
+      "expected": "(optional) Desired state or correct behavior",
+      "observed": "(optional) Actual state or behavior observed",
+      "evidence": ["(optional) Code snippets, traces, or logical arguments supporting the finding"]
     }
   ],
   "metadata": {
@@ -29,6 +32,21 @@ You MUST output valid JSON with this structure:
   }
 }
 ```
+
+## Quality Fields Guidance
+
+For P0/P1 findings, include `expected` and `observed` fields to clearly articulate the desired vs actual state. For lower severity, these are optional.
+
+Include `evidence` (code snippets, traces, logical arguments) when it strengthens the finding. Especially valuable for verified confidence and security findings.
+
+## Categories
+
+- **security** — authentication, authorization, injection, data exposure
+- **logic** — incorrect behavior, wrong conditions, off-by-one errors
+- **performance** — unnecessary computation, memory leaks, N+1 queries
+- **error-handling** — missing error handling, swallowed exceptions, unhelpful messages
+- **design_intent** — code that works correctly but contradicts the developer's stated intent (visible in commit messages or comments)
+- **style** — naming, formatting, readability
 
 ## Confidence Levels
 - **verified** — reproduced or provably wrong
@@ -48,3 +66,4 @@ You MUST output valid JSON with this structure:
 - Prioritize real bugs over style nits
 - If you find no issues, return `{"findings": [], "metadata": {...}}`
 - Do NOT hallucinate issues — only report what you can substantiate from the code
+- When recent commit messages are provided, use them to understand the developer's intent and flag `design_intent` findings where the code contradicts stated goals
