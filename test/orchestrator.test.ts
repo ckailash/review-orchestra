@@ -1,16 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { existsSync, rmSync } from "fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "fs";
+import { join } from "path";
 import { Orchestrator, type OrchestratorCallbacks } from "../src/orchestrator";
 import { loadConfig } from "../src/config";
-import type { DiffScope, Finding } from "../src/types";
+import type { DiffScope, Finding, SessionState } from "../src/types";
 
 // Mock external dependencies — we don't want to run actual headless CLI processes
 vi.mock("../src/reviewers/index", () => ({
   createReviewers: vi.fn(),
-}));
-
-vi.mock("../src/fixer", () => ({
-  runFixer: vi.fn(),
 }));
 
 // Mock fs.readFileSync for the review prompt
@@ -73,7 +70,6 @@ afterEach(() => {
 describe("Orchestrator", () => {
   it("runs a single round when reviewers find no issues", async () => {
     const { createReviewers } = await import("../src/reviewers/index");
-    const { runFixer } = await import("../src/fixer");
 
     vi.mocked(createReviewers).mockReturnValue([
       {
@@ -82,72 +78,13 @@ describe("Orchestrator", () => {
       },
     ]);
 
-    const config = loadConfig({ thresholds: { maxRounds: 3, stopAt: "p1" } });
+    const config = loadConfig({ thresholds: { stopAt: "p1" } });
     const orchestrator = new Orchestrator(config, TEST_STATE_DIR);
-    const summary = await orchestrator.run(mockScope);
+    const result = await orchestrator.run(mockScope);
 
-    expect(summary.totalRounds).toBe(1);
-    expect(summary.remainingFindings).toEqual([]);
-    expect(summary.suggestedAction).toBe("Ready to create PR or push");
-    expect(runFixer).not.toHaveBeenCalled();
-  });
-
-  it("runs fixer when P0 findings exist and loops", async () => {
-    const { createReviewers } = await import("../src/reviewers/index");
-    const { runFixer } = await import("../src/fixer");
-
-    let callCount = 0;
-    vi.mocked(createReviewers).mockReturnValue([
-      {
-        name: "mock-reviewer",
-        review: vi.fn().mockImplementation(async () => {
-          callCount++;
-          if (callCount === 1) {
-            return [makeFinding({ id: "f-001" })];
-          }
-          return []; // Fixed in second round
-        }),
-      },
-    ]);
-
-    vi.mocked(runFixer).mockResolvedValue({
-      fixed: ["f-001"],
-      skipped: [],
-      escalated: [],
-    });
-
-    const config = loadConfig({ thresholds: { maxRounds: 5, stopAt: "p1" } });
-    const orchestrator = new Orchestrator(config, TEST_STATE_DIR);
-    const summary = await orchestrator.run(mockScope);
-
-    expect(summary.totalRounds).toBe(2);
-    expect(runFixer).toHaveBeenCalledTimes(1);
-    expect(summary.fixedFindings).toBe(1);
-  });
-
-  it("respects maxRounds limit", async () => {
-    const { createReviewers } = await import("../src/reviewers/index");
-    const { runFixer } = await import("../src/fixer");
-
-    // Always returns a P0 finding — loop should stop at maxRounds
-    vi.mocked(createReviewers).mockReturnValue([
-      {
-        name: "mock-reviewer",
-        review: vi.fn().mockResolvedValue([makeFinding()]),
-      },
-    ]);
-
-    vi.mocked(runFixer).mockResolvedValue({
-      fixed: [],
-      skipped: ["f-001"],
-      escalated: [],
-    });
-
-    const config = loadConfig({ thresholds: { maxRounds: 2, stopAt: "p1" } });
-    const orchestrator = new Orchestrator(config, TEST_STATE_DIR);
-    const summary = await orchestrator.run(mockScope);
-
-    expect(summary.totalRounds).toBe(2);
+    expect(result.round).toBe(1);
+    expect(result.findings).toEqual([]);
+    expect(result.reviewerErrors).toEqual([]);
   });
 
   it("fires callbacks at each phase", async () => {
@@ -167,7 +104,7 @@ describe("Orchestrator", () => {
       onComplete: vi.fn(),
     };
 
-    const config = loadConfig({ thresholds: { maxRounds: 1, stopAt: "p1" } });
+    const config = loadConfig({ thresholds: { stopAt: "p1" } });
     const orchestrator = new Orchestrator(config, TEST_STATE_DIR, callbacks);
     await orchestrator.run(mockScope);
 
@@ -177,9 +114,8 @@ describe("Orchestrator", () => {
     expect(callbacks.onComplete).toHaveBeenCalled();
   });
 
-  it("does not fix pre-existing findings", async () => {
+  it("tags pre-existing findings correctly", async () => {
     const { createReviewers } = await import("../src/reviewers/index");
-    const { runFixer } = await import("../src/fixer");
 
     // Finding at line 100 is outside the hunk (lines 1-5), so it'll be tagged pre-existing
     vi.mocked(createReviewers).mockReturnValue([
@@ -191,53 +127,157 @@ describe("Orchestrator", () => {
       },
     ]);
 
-    const config = loadConfig({ thresholds: { maxRounds: 3, stopAt: "p1" } });
+    const config = loadConfig({ thresholds: { stopAt: "p1" } });
     const orchestrator = new Orchestrator(config, TEST_STATE_DIR);
-    const summary = await orchestrator.run(mockScope);
+    const result = await orchestrator.run(mockScope);
 
-    // Pre-existing P0 should NOT trigger the fixer
-    expect(summary.totalRounds).toBe(1);
-    expect(summary.preExistingFindings).toHaveLength(1);
-    expect(runFixer).not.toHaveBeenCalled();
+    // Pre-existing P0 should be in findings with pre_existing flag
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0].pre_existing).toBe(true);
   });
 
-  it("calls onEscalation when fixer escalates findings", async () => {
+  it("returns ReviewResult with all required fields", async () => {
     const { createReviewers } = await import("../src/reviewers/index");
-    const { runFixer } = await import("../src/fixer");
 
-    let callCount = 0;
     vi.mocked(createReviewers).mockReturnValue([
       {
         name: "mock-reviewer",
-        review: vi.fn().mockImplementation(async () => {
-          callCount++;
-          if (callCount === 1) return [makeFinding()];
-          return [];
-        }),
+        review: vi.fn().mockResolvedValue([makeFinding()]),
       },
     ]);
 
-    vi.mocked(runFixer).mockResolvedValue({
-      fixed: [],
-      skipped: [],
-      escalated: [
+    const config = loadConfig({ thresholds: { stopAt: "p1" } });
+    const orchestrator = new Orchestrator(config, TEST_STATE_DIR);
+    const result = await orchestrator.run(mockScope);
+
+    // Verify all 8 ReviewResult fields are present and correct
+    expect(result.sessionId).toMatch(/^\d{8}-\d{6}$/); // timestamp ID
+    expect(result.round).toBe(1);
+    expect(result.findings).toHaveLength(1);
+    expect(result.resolvedFindings).toEqual([]);
+    expect(result.reviewerErrors).toEqual([]);
+    expect(result.worktreeHash).toMatch(/^[0-9a-f]{64}$/); // SHA-256 hex
+    expect(result.scope).toEqual(mockScope);
+    expect(result.metadata).toBeDefined();
+    expect(result.metadata.files_reviewed).toBe(1);
+    expect(result.metadata.round).toBe(1);
+    expect(result.metadata.reviewer).toBe("mock-reviewer");
+    expect(result.metadata.timestamp).toBeTruthy();
+    expect(result.metadata.diff_scope).toBe(mockScope.description);
+  });
+
+  it("captures reviewer errors in ReviewResult", async () => {
+    const { createReviewers } = await import("../src/reviewers/index");
+
+    vi.mocked(createReviewers).mockReturnValue([
+      {
+        name: "good-reviewer",
+        review: vi.fn().mockResolvedValue([makeFinding()]),
+      },
+      {
+        name: "bad-reviewer",
+        review: vi.fn().mockRejectedValue(new Error("connection timeout")),
+      },
+    ]);
+
+    const config = loadConfig({ thresholds: { stopAt: "p1" } });
+    const orchestrator = new Orchestrator(config, TEST_STATE_DIR);
+    const result = await orchestrator.run(mockScope);
+
+    expect(result.findings).toHaveLength(1);
+    expect(result.reviewerErrors).toHaveLength(1);
+    expect(result.reviewerErrors[0]).toEqual({
+      reviewer: "bad-reviewer",
+      error: "connection timeout",
+    });
+  });
+
+  it("skips to consolidation when recovering with all reviewers already completed", async () => {
+    const { createReviewers } = await import("../src/reviewers/index");
+
+    const savedFinding = makeFinding({ id: "saved-001", title: "Saved finding" });
+    const reviewFn = vi.fn();
+
+    vi.mocked(createReviewers).mockReturnValue([
+      {
+        name: "reviewer-a",
+        review: reviewFn,
+      },
+      {
+        name: "reviewer-b",
+        review: reviewFn,
+      },
+    ]);
+
+    // Pre-seed session.json with an incomplete round where ALL reviewers completed
+    mkdirSync(TEST_STATE_DIR, { recursive: true });
+    const crashedState: SessionState = {
+      sessionId: "20260315-143022",
+      status: "active",
+      currentRound: 1,
+      rounds: [
         {
-          findingId: "f-001",
-          reason: "Needs architectural decision",
-          options: ["Option A", "Option B"],
+          number: 1,
+          phase: "reviewing",
+          reviews: {
+            "reviewer-a": {
+              findings: [savedFinding],
+              metadata: {
+                reviewer: "reviewer-a",
+                round: 1,
+                timestamp: "2026-03-15T14:30:22Z",
+                files_reviewed: 1,
+                diff_scope: "branch feat/auth vs main",
+              },
+            },
+            "reviewer-b": {
+              findings: [makeFinding({ id: "saved-002", title: "Another finding", reviewer: "reviewer-b" })],
+              metadata: {
+                reviewer: "reviewer-b",
+                round: 1,
+                timestamp: "2026-03-15T14:30:23Z",
+                files_reviewed: 1,
+                diff_scope: "branch feat/auth vs main",
+              },
+            },
+          },
+          consolidated: [],
+          worktreeHash: "hash1",
+          startedAt: "2026-03-15T14:30:22Z",
+          completedAt: null,
         },
       ],
-    });
+      scope: mockScope,
+      worktreeHash: "hash1",
+      startedAt: "2026-03-15T14:30:22Z",
+      completedAt: null,
+    };
+    writeFileSync(
+      join(TEST_STATE_DIR, "session.json"),
+      JSON.stringify(crashedState, null, 2),
+    );
 
-    const onEscalation = vi.fn().mockResolvedValue(undefined);
-    const config = loadConfig({ thresholds: { maxRounds: 3, stopAt: "p1" } });
-    const orchestrator = new Orchestrator(config, TEST_STATE_DIR, {
-      onEscalation,
-    });
-    await orchestrator.run(mockScope);
+    const callbacks: OrchestratorCallbacks = {
+      onRoundStart: vi.fn(),
+      onConsolidated: vi.fn(),
+      onComplete: vi.fn(),
+    };
 
-    expect(onEscalation).toHaveBeenCalledWith([
-      expect.objectContaining({ findingId: "f-001" }),
-    ]);
+    const config = loadConfig({ thresholds: { stopAt: "p1" } });
+    const orchestrator = new Orchestrator(config, TEST_STATE_DIR, callbacks);
+    const result = await orchestrator.run(mockScope);
+
+    // Reviewers should NOT have been called (all were already completed)
+    expect(reviewFn).not.toHaveBeenCalled();
+
+    // Consolidation should have run with the saved findings
+    expect(callbacks.onConsolidated).toHaveBeenCalled();
+    expect(callbacks.onComplete).toHaveBeenCalled();
+
+    // Result should contain findings from saved reviews (consolidated)
+    expect(result.findings.length).toBeGreaterThanOrEqual(1);
+    expect(result.reviewerErrors).toEqual([]);
+    expect(result.round).toBe(1);
+    expect(result.sessionId).toBe("20260315-143022");
   });
 });

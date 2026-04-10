@@ -150,6 +150,13 @@ export async function detectScope(
       commitMessages = undefined;
     }
 
+    let baseCommitSha: string | undefined;
+    try {
+      baseCommitSha = git("rev-parse", from);
+    } catch {
+      baseCommitSha = undefined;
+    }
+
     return {
       type: "commit",
       diff,
@@ -157,6 +164,7 @@ export async function detectScope(
       baseBranch: from,
       description: `Changes in ${description}`,
       commitMessages,
+      baseCommitSha,
     };
   }
 
@@ -202,6 +210,13 @@ export async function detectScope(
       commitMessages = undefined;
     }
 
+    let baseCommitSha: string | undefined;
+    try {
+      baseCommitSha = git("rev-parse", branch);
+    } catch {
+      baseCommitSha = undefined;
+    }
+
     return {
       type: "uncommitted",
       diff,
@@ -209,6 +224,7 @@ export async function detectScope(
       baseBranch: branch,
       description: `Uncommitted changes on ${branch}`,
       commitMessages,
+      baseCommitSha,
     };
   }
 
@@ -236,6 +252,13 @@ export async function detectScope(
         // commitsAhead already contains the git log output we need
         const commitMessages = commitsAhead || undefined;
 
+        let baseCommitSha: string | undefined;
+        try {
+          baseCommitSha = git("rev-parse", baseBranch);
+        } catch {
+          baseCommitSha = undefined;
+        }
+
         return {
           type: "branch",
           diff,
@@ -243,6 +266,7 @@ export async function detectScope(
           baseBranch,
           description: `Branch ${branch} vs ${baseBranch}`,
           commitMessages,
+          baseCommitSha,
         };
       }
     }

@@ -10,24 +10,41 @@ import { join } from "path";
 import type {
   DiffScope,
   Finding,
-  OrchestratorState,
+  SessionState,
   ReviewOutput,
   Round,
   RoundPhase,
 } from "./types";
 
-function defaultState(): OrchestratorState {
+export interface RecoveryInfo {
+  isRecovery: boolean;
+  phase?: RoundPhase;
+  completedReviewers?: string[];
+}
+
+function defaultState(): SessionState {
   return {
-    status: "idle",
+    sessionId: "",
+    status: "active",
     currentRound: 0,
     rounds: [],
     scope: null,
+    worktreeHash: "",
     startedAt: "",
     completedAt: null,
   };
 }
 
-function isValidState(obj: unknown): obj is OrchestratorState {
+function generateSessionId(): string {
+  const now = new Date();
+  const pad = (n: number, len = 2) => String(n).padStart(len, "0");
+  return (
+    `${now.getUTCFullYear()}${pad(now.getUTCMonth() + 1)}${pad(now.getUTCDate())}` +
+    `-${pad(now.getUTCHours())}${pad(now.getUTCMinutes())}${pad(now.getUTCSeconds())}`
+  );
+}
+
+function isValidState(obj: unknown): obj is SessionState {
   if (typeof obj !== "object" || obj === null) return false;
   const s = obj as Record<string, unknown>;
   return (
@@ -37,22 +54,56 @@ function isValidState(obj: unknown): obj is OrchestratorState {
   );
 }
 
-export class StateManager {
-  private state: OrchestratorState;
-  private stateFile: string;
+function hasScopeBaseChanged(
+  existingScope: DiffScope | null,
+  newScope: DiffScope,
+): boolean {
+  if (!existingScope) return false;
+  if (
+    existingScope.baseBranch !== newScope.baseBranch ||
+    existingScope.type !== newScope.type
+  ) {
+    return true;
+  }
+  // Detect base branch HEAD changes via baseCommitSha
+  if (
+    existingScope.baseCommitSha &&
+    newScope.baseCommitSha &&
+    existingScope.baseCommitSha !== newScope.baseCommitSha
+  ) {
+    return true;
+  }
+  return false;
+}
+
+export class SessionManager {
+  private state: SessionState;
+  private sessionFile: string;
   private lockFile: string;
 
   constructor(private stateDir: string) {
-    this.stateFile = join(stateDir, "state.json");
+    this.sessionFile = join(stateDir, "session.json");
     this.lockFile = join(stateDir, "state.lock");
     this.state = this.load();
   }
 
-  private load(): OrchestratorState {
-    if (!existsSync(this.stateFile)) return defaultState();
+  private load(): SessionState {
+    const tmpFile = join(this.stateDir, "session.json.tmp");
+
+    // Handle corrupted state: if tmp exists but session.json doesn't, discard tmp
+    if (existsSync(tmpFile) && !existsSync(this.sessionFile)) {
+      try {
+        unlinkSync(tmpFile);
+      } catch {
+        // Best effort
+      }
+      return defaultState();
+    }
+
+    if (!existsSync(this.sessionFile)) return defaultState();
 
     try {
-      const raw = readFileSync(this.stateFile, "utf-8");
+      const raw = readFileSync(this.sessionFile, "utf-8");
       const parsed: unknown = JSON.parse(raw);
       if (isValidState(parsed)) return parsed;
       return defaultState();
@@ -61,31 +112,65 @@ export class StateManager {
     }
   }
 
-  getState(): OrchestratorState {
+  getState(): SessionState {
     return this.state;
   }
 
-  start(scope: DiffScope): void {
+  startOrContinue(scope: DiffScope): RecoveryInfo {
     this.acquireLock();
-    // Reset state for a fresh run — previous round data is already persisted on disk
+
+    // Check if there's an existing active session
+    if (this.state.status === "active" && this.state.sessionId) {
+      // Check for session auto-expiry: scope base changed
+      if (hasScopeBaseChanged(this.state.scope, scope)) {
+        this.state.status = "expired";
+        this.persist();
+        this.releaseLock();
+        throw new Error(
+          "Session expired: scope base has changed. Run `review-orchestra reset` to start a new session.",
+        );
+      }
+
+      // Check for crash recovery: is there an incomplete round?
+      const currentRound = this.state.rounds[this.state.rounds.length - 1];
+      if (currentRound && currentRound.phase !== "complete") {
+        // Incomplete round from a crash — return recovery info
+        const completedReviewers = Object.keys(currentRound.reviews);
+        this.persist();
+        return {
+          isRecovery: true,
+          phase: currentRound.phase,
+          completedReviewers,
+        };
+      }
+
+      // Active session with all rounds complete — continue session
+      this.persist();
+      return { isRecovery: false };
+    }
+
+    // No active session (or status is not 'active') — create new session
     this.state = defaultState();
-    this.state.status = "running";
+    this.state.sessionId = generateSessionId();
+    this.state.status = "active";
     this.state.scope = scope;
     this.state.startedAt = new Date().toISOString();
     this.persist();
+    return { isRecovery: false };
   }
 
-  newRound(): Round {
+  newRound(worktreeHash: string): Round {
     const round: Round = {
       number: this.state.currentRound + 1,
       phase: "reviewing",
       reviews: {},
       consolidated: [],
-      fixReport: null,
+      worktreeHash,
       startedAt: new Date().toISOString(),
       completedAt: null,
     };
     this.state.currentRound = round.number;
+    this.state.worktreeHash = worktreeHash;
     this.state.rounds.push(round);
     this.persist();
     return round;
@@ -95,10 +180,18 @@ export class StateManager {
     return this.state.rounds[this.state.rounds.length - 1];
   }
 
+  getPreviousRound(): Round | undefined {
+    if (this.state.rounds.length < 2) return undefined;
+    return this.state.rounds[this.state.rounds.length - 2];
+  }
+
   updatePhase(phase: RoundPhase): void {
     const round = this.getCurrentRound();
     if (round) {
       round.phase = phase;
+      if (phase === "complete") {
+        round.completedAt = new Date().toISOString();
+      }
       this.persist();
     }
   }
@@ -127,8 +220,7 @@ export class StateManager {
   }
 
   fail(): void {
-    this.state.status = "failed";
-    this.state.completedAt = new Date().toISOString();
+    // Keep session active so the user can retry after failure
     this.persist();
     this.releaseLock();
   }
@@ -136,9 +228,9 @@ export class StateManager {
   persist(): void {
     mkdirSync(this.stateDir, { recursive: true });
     // Atomic write: write to tmp, then rename
-    const tmpFile = join(this.stateDir, "state.json.tmp");
+    const tmpFile = join(this.stateDir, "session.json.tmp");
     writeFileSync(tmpFile, JSON.stringify(this.state, null, 2));
-    renameSync(tmpFile, this.stateFile);
+    renameSync(tmpFile, this.sessionFile);
   }
 
   private acquireLock(): void {
@@ -147,7 +239,12 @@ export class StateManager {
       // Atomic create — fails with EEXIST if the file already exists
       writeFileSync(this.lockFile, String(process.pid), { flag: "wx" });
     } catch (err) {
-      if (err && typeof err === "object" && "code" in err && (err as NodeJS.ErrnoException).code === "EEXIST") {
+      if (
+        err &&
+        typeof err === "object" &&
+        "code" in err &&
+        (err as NodeJS.ErrnoException).code === "EEXIST"
+      ) {
         // Lock file exists — check if the holder is still alive
         try {
           const lockPid = readFileSync(this.lockFile, "utf-8").trim();
@@ -157,17 +254,23 @@ export class StateManager {
               process.kill(pid, 0);
               throw new Error(
                 `Another review-orchestra instance is running (PID ${pid}). ` +
-                  `Delete ${this.lockFile} if this is incorrect.`
+                  `Delete ${this.lockFile} if this is incorrect.`,
               );
             } catch (e) {
-              if (e instanceof Error && e.message.includes("Another review-orchestra")) {
+              if (
+                e instanceof Error &&
+                e.message.includes("Another review-orchestra")
+              ) {
                 throw e;
               }
               // Process doesn't exist — stale lock, safe to overwrite
             }
           }
         } catch (e) {
-          if (e instanceof Error && e.message.includes("Another review-orchestra")) {
+          if (
+            e instanceof Error &&
+            e.message.includes("Another review-orchestra")
+          ) {
             throw e;
           }
           // Can't read lock file — treat as stale
@@ -180,7 +283,7 @@ export class StateManager {
     }
   }
 
-  private releaseLock(): void {
+  releaseLock(): void {
     try {
       if (existsSync(this.lockFile)) {
         unlinkSync(this.lockFile);

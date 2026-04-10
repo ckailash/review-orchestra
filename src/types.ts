@@ -3,6 +3,8 @@ export type Confidence = "verified" | "likely" | "possible" | "speculative";
 export type Impact = "critical" | "functional" | "quality" | "nitpick";
 export type PLevel = "p0" | "p1" | "p2" | "p3";
 
+export type FindingStatus = "new" | "persisting";
+
 export interface Finding {
   id: string;
   file: string;
@@ -16,6 +18,7 @@ export interface Finding {
   suggestion: string;
   reviewer: string;
   pre_existing: boolean;
+  status?: FindingStatus;
   expected?: string;
   observed?: string;
   evidence?: string[];
@@ -44,54 +47,46 @@ export interface DiffScope {
   baseBranch: string;
   description: string;
   commitMessages?: string;
+  baseCommitSha?: string;
 }
 
 // Round tracking
-export type RoundPhase =
-  | "reviewing"
-  | "consolidating"
-  | "checking"
-  | "fixing"
-  | "escalating"
-  | "complete";
+export type RoundPhase = "reviewing" | "consolidating" | "complete";
 
 export interface Round {
   number: number;
   phase: RoundPhase;
   reviews: Record<string, ReviewOutput>;
   consolidated: Finding[];
-  fixReport: FixReport | null;
+  worktreeHash: string;
   startedAt: string;
   completedAt: string | null;
 }
 
-export interface FixReport {
-  fixed: string[];
-  skipped: string[];
-  escalated: EscalationItem[];
-}
+// Session state
+export type SessionStatus = "active" | "expired" | "completed";
 
-export interface EscalationItem {
-  findingId: string;
-  reason: string;
-  options: string[];
-}
-
-// Orchestration state
-export type OrchestratorStatus =
-  | "idle"
-  | "running"
-  | "paused"
-  | "completed"
-  | "failed";
-
-export interface OrchestratorState {
-  status: OrchestratorStatus;
+export interface SessionState {
+  sessionId: string;
+  status: SessionStatus;
   currentRound: number;
   rounds: Round[];
   scope: DiffScope | null;
+  worktreeHash: string;
   startedAt: string;
   completedAt: string | null;
+}
+
+// Review result
+export interface ReviewResult {
+  sessionId: string;
+  round: number;
+  findings: Finding[];
+  resolvedFindings: Finding[];
+  reviewerErrors: Array<{ reviewer: string; error: string }>;
+  worktreeHash: string;
+  scope: DiffScope;
+  metadata: ReviewMetadata;
 }
 
 // Configuration
@@ -104,16 +99,9 @@ export interface ReviewerConfig {
 
 export interface ThresholdConfig {
   stopAt: PLevel;
-  maxRounds: number;
-}
-
-export interface EscalationConfig {
-  pauseOnAmbiguity: boolean;
-  pauseOnConflict: boolean;
 }
 
 export interface Config {
   reviewers: Record<string, ReviewerConfig>;
   thresholds: ThresholdConfig;
-  escalation: EscalationConfig;
 }

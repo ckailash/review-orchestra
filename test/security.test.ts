@@ -181,27 +181,27 @@ And here is more text with another JSON: {"findings": [{"id": "should-not-match"
     });
 
     it("recovers from corrupted state file", async () => {
-      const { StateManager } = await import("../src/state");
+      const { SessionManager } = await import("../src/state");
 
-      writeFileSync(join(TEST_DIR, "state.json"), "not valid json {{{");
-      const sm = new StateManager(TEST_DIR);
-      expect(sm.getState().status).toBe("idle"); // falls back to default
+      writeFileSync(join(TEST_DIR, "session.json"), "not valid json {{{");
+      const sm = new SessionManager(TEST_DIR);
+      expect(sm.getState().status).toBe("active"); // falls back to default
     });
 
     it("recovers from partially written state file", async () => {
-      const { StateManager } = await import("../src/state");
+      const { SessionManager } = await import("../src/state");
 
-      writeFileSync(join(TEST_DIR, "state.json"), '{"status": "running", "currentRound": 1');
-      const sm = new StateManager(TEST_DIR);
-      expect(sm.getState().status).toBe("idle"); // invalid JSON, falls back
+      writeFileSync(join(TEST_DIR, "session.json"), '{"status": "running", "currentRound": 1');
+      const sm = new SessionManager(TEST_DIR);
+      expect(sm.getState().status).toBe("active"); // invalid JSON, falls back
     });
 
     it("recovers from state file with wrong shape", async () => {
-      const { StateManager } = await import("../src/state");
+      const { SessionManager } = await import("../src/state");
 
-      writeFileSync(join(TEST_DIR, "state.json"), '{"foo": "bar"}');
-      const sm = new StateManager(TEST_DIR);
-      expect(sm.getState().status).toBe("idle"); // missing required fields
+      writeFileSync(join(TEST_DIR, "session.json"), '{"foo": "bar"}');
+      const sm = new SessionManager(TEST_DIR);
+      expect(sm.getState().status).toBe("active"); // missing required fields
     });
   });
 

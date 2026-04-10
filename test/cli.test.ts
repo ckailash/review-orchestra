@@ -1,5 +1,87 @@
 import { describe, it, expect } from "vitest";
 import { parseArgs } from "../src/parse-args";
+import { detectSubcommand } from "../src/parse-args";
+
+describe("detectSubcommand", () => {
+  it("returns 'review' when first arg is 'review'", () => {
+    const result = detectSubcommand(["review"]);
+    expect(result.subcommand).toBe("review");
+    expect(result.remaining).toEqual([]);
+  });
+
+  it("returns 'review' with remaining args passed through", () => {
+    const result = detectSubcommand(["review", "src/auth/"]);
+    expect(result.subcommand).toBe("review");
+    expect(result.remaining).toEqual(["src/auth/"]);
+  });
+
+  it("defaults to 'review' when no subcommand given", () => {
+    const result = detectSubcommand([]);
+    expect(result.subcommand).toBe("review");
+    expect(result.remaining).toEqual([]);
+  });
+
+  it("defaults to 'review' when first arg is a path", () => {
+    const result = detectSubcommand(["src/auth/"]);
+    expect(result.subcommand).toBe("review");
+    expect(result.remaining).toEqual(["src/auth/"]);
+  });
+
+  it("defaults to 'review' when first arg is a natural language option", () => {
+    const result = detectSubcommand(["only", "claude"]);
+    expect(result.subcommand).toBe("review");
+    expect(result.remaining).toEqual(["only", "claude"]);
+  });
+
+  it("recognizes 'reset' subcommand", () => {
+    const result = detectSubcommand(["reset"]);
+    expect(result.subcommand).toBe("reset");
+    expect(result.remaining).toEqual([]);
+  });
+
+  it("recognizes 'stale' subcommand", () => {
+    const result = detectSubcommand(["stale"]);
+    expect(result.subcommand).toBe("stale");
+    expect(result.remaining).toEqual([]);
+  });
+
+  it("recognizes 'setup' subcommand", () => {
+    const result = detectSubcommand(["setup"]);
+    expect(result.subcommand).toBe("setup");
+    expect(result.remaining).toEqual([]);
+  });
+
+  it("recognizes 'doctor' subcommand", () => {
+    const result = detectSubcommand(["doctor"]);
+    expect(result.subcommand).toBe("doctor");
+    expect(result.remaining).toEqual([]);
+  });
+
+  it("treats scope args as review when no subcommand given", () => {
+    // 'review-orchestra src/auth/' is equivalent to 'review-orchestra review src/auth/'
+    const result = detectSubcommand(["src/auth/", "only", "claude"]);
+    expect(result.subcommand).toBe("review");
+    expect(result.remaining).toEqual(["src/auth/", "only", "claude"]);
+  });
+
+  it("passes remaining args through for review subcommand", () => {
+    const result = detectSubcommand(["review", "src/auth/", "only", "claude", "use", "opus"]);
+    expect(result.subcommand).toBe("review");
+    expect(result.remaining).toEqual(["src/auth/", "only", "claude", "use", "opus"]);
+  });
+
+  it("does not confuse dry-run flag as subcommand", () => {
+    const result = detectSubcommand(["--dry-run", "src/"]);
+    expect(result.subcommand).toBe("review");
+    expect(result.remaining).toEqual(["--dry-run", "src/"]);
+  });
+
+  it("does not confuse HEAD~N as subcommand", () => {
+    const result = detectSubcommand(["HEAD~3"]);
+    expect(result.subcommand).toBe("review");
+    expect(result.remaining).toEqual(["HEAD~3"]);
+  });
+});
 
 describe("parseArgs", () => {
   it("returns defaults for empty input", () => {
@@ -25,11 +107,6 @@ describe("parseArgs", () => {
   it("parses dry run flag", () => {
     expect(parseArgs("dry run").dryRun).toBe(true);
     expect(parseArgs("--dry-run").dryRun).toBe(true);
-  });
-
-  it("parses max rounds", () => {
-    const result = parseArgs("max 3 rounds");
-    expect(result.maxRounds).toBe(3);
   });
 
   it("parses 'fix everything' threshold", () => {
@@ -122,9 +199,8 @@ describe("parseArgs", () => {
   });
 
   it("parses combined args", () => {
-    const result = parseArgs("src/auth/ max 3 rounds only claude use opus dry run");
+    const result = parseArgs("src/auth/ only claude use opus dry run");
     expect(result.paths).toEqual(["src/auth/"]);
-    expect(result.maxRounds).toBe(3);
     expect(result.onlyReviewer).toBe("claude");
     expect(result.models).toEqual({ claude: "opus" });
     expect(result.dryRun).toBe(true);
