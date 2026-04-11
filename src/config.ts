@@ -1,9 +1,16 @@
 import { readFileSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
-import type { Config, ReviewerConfig } from "./types";
+import type { Config, FindingComparisonConfig, ReviewerConfig } from "./types";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+export const DEFAULT_FINDING_COMPARISON_CONFIG: FindingComparisonConfig = {
+  method: "llm",
+  model: "claude-haiku-4-5",
+  timeoutMs: 60000,
+  fallback: "heuristic",
+};
 
 export const DEFAULT_CONFIG: Config = {
   reviewers: {
@@ -23,6 +30,7 @@ export const DEFAULT_CONFIG: Config = {
   thresholds: {
     stopAt: "p1",
   },
+  findingComparison: DEFAULT_FINDING_COMPARISON_CONFIG,
 };
 
 function loadBaseConfig(): Config {
@@ -32,6 +40,7 @@ function loadBaseConfig(): Config {
     return {
       reviewers: parsed.reviewers ?? DEFAULT_CONFIG.reviewers,
       thresholds: { ...DEFAULT_CONFIG.thresholds, ...parsed.thresholds },
+      findingComparison: { ...DEFAULT_FINDING_COMPARISON_CONFIG, ...parsed.findingComparison },
     };
   } catch {
     return structuredClone(DEFAULT_CONFIG);
@@ -42,6 +51,7 @@ export function loadConfig(
   overrides?: Partial<{
     reviewers: Record<string, Partial<ReviewerConfig>>;
     thresholds: Partial<Config["thresholds"]>;
+    findingComparison: Partial<FindingComparisonConfig>;
   }>
 ): Config {
   const base = loadBaseConfig();
@@ -61,5 +71,6 @@ export function loadConfig(
   return {
     reviewers,
     thresholds: { ...base.thresholds, ...overrides.thresholds },
+    findingComparison: { ...base.findingComparison!, ...overrides.findingComparison },
   };
 }

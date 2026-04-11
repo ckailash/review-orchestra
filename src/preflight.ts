@@ -79,6 +79,15 @@ export function runPreflight(config: Config): PreflightResult {
     errors.push("No reviewers are enabled in the configuration.");
   }
 
+  // LLM finding comparison preflight: warn if claude missing when method=llm
+  if (config.findingComparison?.method === "llm") {
+    if (!binaryExists("claude")) {
+      warnings.push(
+        "LLM finding comparison requires claude CLI; falling back to heuristic matching"
+      );
+    }
+  }
+
   // git is a hard requirement
   if (!binaryExists("git")) {
     errors.push("git is required but not found on PATH.");

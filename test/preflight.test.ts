@@ -37,7 +37,7 @@ describe("runPreflight", () => {
     const config = loadConfig();
     const result = runPreflight(config);
     expect(result.ok).toBe(true); // still ok — codex remains
-    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings).toHaveLength(2); // reviewer warning + finding comparison warning
     expect(result.warnings[0]).toContain("claude");
     expect(result.disabledReviewers).toEqual(["claude"]);
   });
@@ -118,6 +118,56 @@ describe("runPreflight", () => {
     const result = runPreflight(config);
     expect(result.ok).toBe(false);
     expect(result.errors[0]).toContain("No reviewers are enabled");
+  });
+
+  it("warns when findingComparison method=llm and claude binary missing", () => {
+    mockBinaries(["codex", "git"]);
+    const config = loadConfig({
+      findingComparison: { method: "llm" },
+    });
+    const result = runPreflight(config);
+    const comparisonWarning = result.warnings.find((w) =>
+      w.includes("LLM finding comparison")
+    );
+    expect(comparisonWarning).toBeDefined();
+    expect(comparisonWarning).toContain("falling back to heuristic matching");
+  });
+
+  it("does not warn about finding comparison when method=heuristic", () => {
+    mockBinaries(["codex", "git"]);
+    const config = loadConfig({
+      findingComparison: { method: "heuristic" },
+    });
+    const result = runPreflight(config);
+    const comparisonWarning = result.warnings.find((w) =>
+      w.includes("LLM finding comparison")
+    );
+    expect(comparisonWarning).toBeUndefined();
+  });
+
+  it("does not warn about finding comparison when claude binary exists", () => {
+    mockBinaries(["claude", "codex", "git"]);
+    const config = loadConfig({
+      findingComparison: { method: "llm" },
+    });
+    const result = runPreflight(config);
+    const comparisonWarning = result.warnings.find((w) =>
+      w.includes("LLM finding comparison")
+    );
+    expect(comparisonWarning).toBeUndefined();
+  });
+
+  it("does not warn about finding comparison when findingComparison is undefined", () => {
+    mockBinaries(["codex", "git"]);
+    // Create a config without findingComparison explicitly
+    const config = loadConfig();
+    // Override to remove findingComparison
+    const configWithout = { ...config, findingComparison: undefined };
+    const result = runPreflight(configWithout);
+    const comparisonWarning = result.warnings.find((w) =>
+      w.includes("LLM finding comparison")
+    );
+    expect(comparisonWarning).toBeUndefined();
   });
 
   it("rejects binary names with shell metacharacters", () => {

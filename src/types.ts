@@ -101,7 +101,15 @@ export interface ThresholdConfig {
   stopAt: PLevel;
 }
 
+export interface FindingComparisonConfig {
+  method: "llm" | "heuristic";
+  model: string;
+  timeoutMs: number;
+  fallback: "heuristic" | "error";
+}
+
 export interface Config {
   reviewers: Record<string, ReviewerConfig>;
   thresholds: ThresholdConfig;
+  findingComparison?: FindingComparisonConfig;
 }

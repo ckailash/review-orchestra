@@ -152,7 +152,7 @@ export class Orchestrator {
       const previousFindings = previousRound?.consolidated ?? [];
       const currentConsolidated = this.state.getCurrentRound()?.consolidated ?? [];
       const { findings: comparedFindings, resolvedFindings } =
-        assignFindingIds(currentConsolidated, previousFindings, round.number);
+        await assignFindingIds(currentConsolidated, previousFindings, round.number, this.config.findingComparison);
 
       // Update consolidated findings with IDs and statuses
       this.state.saveConsolidated(comparedFindings);
