@@ -10,6 +10,8 @@ import {
 import { parseArgs, detectSubcommand } from "./parse-args";
 import { SessionManager } from "./state";
 import { checkStale } from "./worktree-hash";
+import { runSetup as runSetupCmd } from "./setup.js";
+import { runDoctor as runDoctorCmd } from "./doctor.js";
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const STATE_DIR = join(process.cwd(), ".review-orchestra");
@@ -153,27 +155,11 @@ function runStale(): void {
 }
 
 async function runSetup(): Promise<void> {
-  // setup.ts is implemented in a separate feature (setup-doctor).
-  // Check if the module exists at runtime to avoid hard compile-time dependency.
-  const setupPath = join(dirname(fileURLToPath(import.meta.url)), "setup.js");
-  if (!existsSync(setupPath)) {
-    console.error("[review-orchestra] Setup command is not yet available.");
-    process.exit(1);
-  }
-  const mod = await import(setupPath);
-  await mod.runSetup(PACKAGE_ROOT);
+  await runSetupCmd(PACKAGE_ROOT);
 }
 
 async function runDoctor(): Promise<void> {
-  // doctor.ts is implemented in a separate feature (setup-doctor).
-  // Check if the module exists at runtime to avoid hard compile-time dependency.
-  const doctorPath = join(dirname(fileURLToPath(import.meta.url)), "doctor.js");
-  if (!existsSync(doctorPath)) {
-    console.error("[review-orchestra] Doctor command is not yet available.");
-    process.exit(1);
-  }
-  const mod = await import(doctorPath);
-  await mod.runDoctor(PACKAGE_ROOT);
+  await runDoctorCmd(PACKAGE_ROOT);
 }
 
 // --- Main entry point ---

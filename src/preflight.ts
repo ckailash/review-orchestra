@@ -1,4 +1,4 @@
-import { execFileSync } from "child_process";
+import { binaryExists, VALID_BINARY_PATTERN } from "./checks.js";
 import type { Config } from "./types";
 
 interface BinaryInfo {
@@ -19,18 +19,6 @@ const KNOWN_BINARIES: Record<string, BinaryInfo> = {
     installHint: "Install with: npm install -g @openai/codex",
   },
 };
-
-const VALID_BINARY_PATTERN = /^[a-zA-Z0-9._\-/]+$/;
-
-function binaryExists(binary: string): boolean {
-  if (!VALID_BINARY_PATTERN.test(binary)) return false;
-  try {
-    execFileSync("which", [binary], { stdio: "pipe" });
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 function extractBinary(command: string): string {
   return command.trim().split(/\s+/)[0];
