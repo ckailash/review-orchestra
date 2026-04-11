@@ -145,6 +145,28 @@ describe("detectScope", () => {
     });
   });
 
+  describe("baseCommitSha", () => {
+    it("populates baseCommitSha for uncommitted scope", async () => {
+      mockExecFile.mockImplementation((...args: unknown[]) => {
+        const cmd = argsToCmd(args);
+        if (cmd === "git diff --name-only") return "src/foo.ts\n";
+        if (cmd === "git diff --cached --name-only") return "";
+        if (cmd === "git ls-files --others --exclude-standard") return "";
+        if (cmd === "git diff HEAD") {
+          return "diff --git a/src/foo.ts b/src/foo.ts\n--- a/src/foo.ts\n+++ b/src/foo.ts\n@@ -1,3 +1,4 @@\n+added line\n";
+        }
+        if (cmd === "git rev-parse --abbrev-ref HEAD") return "feat/auth\n";
+        if (cmd === "git rev-parse feat/auth") return "abc123def456\n";
+        if (cmd.startsWith("git log")) return "";
+        return "";
+      });
+
+      const scope = await detectScope();
+      expect(scope.type).toBe("uncommitted");
+      expect(scope.baseCommitSha).toBe("abc123def456");
+    });
+  });
+
   describe("no changes detected", () => {
     it("throws when there is nothing to review", async () => {
       mockExecFile.mockImplementation((...args: unknown[]) => {

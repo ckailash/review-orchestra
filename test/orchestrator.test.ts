@@ -74,7 +74,7 @@ describe("Orchestrator", () => {
     vi.mocked(createReviewers).mockReturnValue([
       {
         name: "mock-reviewer",
-        review: vi.fn().mockResolvedValue([]),
+        review: vi.fn().mockResolvedValue({ findings: [], rawOutput: "" }),
       },
     ]);
 
@@ -93,7 +93,7 @@ describe("Orchestrator", () => {
     vi.mocked(createReviewers).mockReturnValue([
       {
         name: "mock-reviewer",
-        review: vi.fn().mockResolvedValue([]),
+        review: vi.fn().mockResolvedValue({ findings: [], rawOutput: "" }),
       },
     ]);
 
@@ -121,9 +121,10 @@ describe("Orchestrator", () => {
     vi.mocked(createReviewers).mockReturnValue([
       {
         name: "mock-reviewer",
-        review: vi.fn().mockResolvedValue([
-          makeFinding({ id: "f-001", line: 100 }),
-        ]),
+        review: vi.fn().mockResolvedValue({
+          findings: [makeFinding({ id: "f-001", line: 100 })],
+          rawOutput: "mock raw output",
+        }),
       },
     ]);
 
@@ -142,7 +143,7 @@ describe("Orchestrator", () => {
     vi.mocked(createReviewers).mockReturnValue([
       {
         name: "mock-reviewer",
-        review: vi.fn().mockResolvedValue([makeFinding()]),
+        review: vi.fn().mockResolvedValue({ findings: [makeFinding()], rawOutput: "mock raw output" }),
       },
     ]);
 
@@ -172,7 +173,7 @@ describe("Orchestrator", () => {
     vi.mocked(createReviewers).mockReturnValue([
       {
         name: "good-reviewer",
-        review: vi.fn().mockResolvedValue([makeFinding()]),
+        review: vi.fn().mockResolvedValue({ findings: [makeFinding()], rawOutput: "mock raw output" }),
       },
       {
         name: "bad-reviewer",
@@ -190,6 +191,78 @@ describe("Orchestrator", () => {
       reviewer: "bad-reviewer",
       error: "connection timeout",
     });
+  });
+
+  it("does not duplicate findings when recovering with some reviewers remaining", async () => {
+    const { createReviewers } = await import("../src/reviewers/index");
+
+    const savedFinding = makeFinding({ id: "saved-001", title: "Saved finding from reviewer-a", reviewer: "reviewer-a" });
+    const newFinding = makeFinding({ id: "new-001", title: "New finding from reviewer-b", reviewer: "reviewer-b" });
+
+    vi.mocked(createReviewers).mockReturnValue([
+      {
+        name: "reviewer-a",
+        review: vi.fn().mockRejectedValue(new Error("should not be called")),
+      },
+      {
+        name: "reviewer-b",
+        review: vi.fn().mockResolvedValue({ findings: [newFinding], rawOutput: "mock raw" }),
+      },
+    ]);
+
+    // Pre-seed session.json with an incomplete round where only reviewer-a completed
+    mkdirSync(TEST_STATE_DIR, { recursive: true });
+    const crashedState: SessionState = {
+      sessionId: "20260315-143022",
+      status: "active",
+      currentRound: 1,
+      rounds: [
+        {
+          number: 1,
+          phase: "reviewing",
+          reviews: {
+            "reviewer-a": {
+              findings: [savedFinding],
+              metadata: {
+                reviewer: "reviewer-a",
+                round: 1,
+                timestamp: "2026-03-15T14:30:22Z",
+                files_reviewed: 1,
+                diff_scope: "branch feat/auth vs main",
+              },
+            },
+          },
+          consolidated: [],
+          worktreeHash: "hash1",
+          startedAt: "2026-03-15T14:30:22Z",
+          completedAt: null,
+        },
+      ],
+      scope: mockScope,
+      worktreeHash: "hash1",
+      startedAt: "2026-03-15T14:30:22Z",
+      completedAt: null,
+    };
+    writeFileSync(
+      join(TEST_STATE_DIR, "session.json"),
+      JSON.stringify(crashedState, null, 2),
+    );
+
+    const config = loadConfig({ thresholds: { stopAt: "p1" } });
+    const orchestrator = new Orchestrator(config, TEST_STATE_DIR);
+    const result = await orchestrator.run(mockScope);
+
+    // reviewer-a's finding should appear exactly once
+    const reviewerAFindings = result.findings.filter(f => f.reviewer === "reviewer-a");
+    expect(reviewerAFindings).toHaveLength(1);
+
+    // reviewer-b's finding should appear exactly once
+    const reviewerBFindings = result.findings.filter(f => f.reviewer === "reviewer-b");
+    expect(reviewerBFindings).toHaveLength(1);
+
+    // Total findings should be the sum of unique findings from both reviewers
+    expect(result.findings).toHaveLength(2);
+    expect(result.sessionId).toBe("20260315-143022");
   });
 
   it("skips to consolidation when recovering with all reviewers already completed", async () => {

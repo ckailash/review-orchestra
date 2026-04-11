@@ -1,8 +1,7 @@
 import { createHash } from "crypto";
 import { execFileSync } from "child_process";
-import { readFileSync, existsSync } from "fs";
+import { readFileSync } from "fs";
 import { join } from "path";
-import type { SessionState } from "./types";
 
 /**
  * Compute a SHA-256 hash over the current worktree state.
@@ -22,18 +21,37 @@ export function computeWorktreeHash(cwd: string = process.cwd()): string {
   const hash = createHash("sha256");
 
   // 1. HEAD commit
-  const head = execFileSync("git", ["rev-parse", "HEAD"], {
-    cwd,
-    encoding: "utf-8",
-  }).trim();
+  let head = "";
+  try {
+    head = execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd,
+      encoding: "utf-8",
+    }).trim();
+  } catch {
+    // Fresh repo with no commits — HEAD doesn't exist yet
+  }
   hash.update(head);
 
   // 2. Staged + unstaged changes vs HEAD
-  const diff = execFileSync("git", ["diff", "HEAD"], {
-    cwd,
-    encoding: "utf-8",
-    maxBuffer: 10 * 1024 * 1024, // 10MB
-  });
+  let diff = "";
+  try {
+    diff = execFileSync("git", ["diff", "HEAD"], {
+      cwd,
+      encoding: "utf-8",
+      maxBuffer: 10 * 1024 * 1024,
+    });
+  } catch {
+    // Fresh repo — no HEAD to diff against; try staged changes only
+    try {
+      diff = execFileSync("git", ["diff", "--cached"], {
+        cwd,
+        encoding: "utf-8",
+        maxBuffer: 10 * 1024 * 1024,
+      });
+    } catch {
+      // No diff available
+    }
+  }
   hash.update(diff);
 
   // 3. Untracked files — list with null-byte separation for safety
@@ -70,38 +88,22 @@ export function computeWorktreeHash(cwd: string = process.cwd()): string {
 /**
  * Check if the current worktree is stale relative to the last review round.
  *
+ * @param lastWorktreeHash - The worktree hash from the last review round, or null if no session/rounds exist.
+ * @param cwd - Working directory for computing current hash (defaults to process.cwd()).
+ *
  * Returns:
  * - 0 if fresh (current hash matches last round's hash)
  * - 1 if stale (current hash differs from last round's hash)
- * - 2 if no session exists or no rounds recorded
+ * - 2 if no session exists or no rounds recorded (lastWorktreeHash is null)
  */
-export function checkStale(stateDir: string, cwd: string = process.cwd()): number {
-  const sessionFile = join(stateDir, "session.json");
-
-  if (!existsSync(sessionFile)) {
-    return 2;
-  }
-
-  let state: SessionState;
-  try {
-    const raw = readFileSync(sessionFile, "utf-8");
-    state = JSON.parse(raw) as SessionState;
-  } catch {
-    return 2;
-  }
-
-  if (!state.rounds || state.rounds.length === 0) {
-    return 2;
-  }
-
-  const lastRound = state.rounds[state.rounds.length - 1];
-  if (!lastRound || !lastRound.worktreeHash) {
+export function checkStale(lastWorktreeHash: string | null, cwd: string = process.cwd()): number {
+  if (lastWorktreeHash === null) {
     return 2;
   }
 
   const currentHash = computeWorktreeHash(cwd);
 
-  if (currentHash === lastRound.worktreeHash) {
+  if (currentHash === lastWorktreeHash) {
     return 0; // fresh
   }
 

@@ -1,7 +1,7 @@
 /**
  * Shared JSON extraction and CLI envelope unwrapping.
- * Used by both reviewer-parser.ts and fixer.ts to handle
- * raw output from headless claude/codex CLI calls.
+ * Used by reviewer-parser.ts to handle raw output from
+ * headless claude/codex CLI calls.
  */
 
 /**
@@ -111,6 +111,24 @@ export function extractJson(raw: string): unknown | null {
  * where result is a stringified JSON (possibly inside a code block).
  */
 export function unwrapCliEnvelope(parsed: unknown): unknown {
+  // Handle streaming JSON array format: find the type:"result" element and unwrap it
+  if (Array.isArray(parsed)) {
+    const resultEl = parsed.find(
+      (el): el is Record<string, unknown> =>
+        typeof el === "object" && el !== null && "type" in el && el.type === "result" && "result" in el,
+    );
+    if (resultEl) {
+      const inner = resultEl.result;
+      if (typeof inner === "string") {
+        const unwrapped = extractJson(inner);
+        if (unwrapped !== null) return unwrapped;
+      } else if (typeof inner === "object" && inner !== null) {
+        return inner;
+      }
+    }
+    return parsed;
+  }
+
   if (
     typeof parsed === "object" &&
     parsed !== null &&

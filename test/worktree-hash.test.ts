@@ -108,149 +108,45 @@ describe("computeWorktreeHash", () => {
     const hash = computeWorktreeHash(TEST_DIR);
     expect(hash).toMatch(/^[0-9a-f]{64}$/);
   });
+
+  it("does not crash on a fresh repo with no commits", () => {
+    const freshDir = "/tmp/review-orchestra-test-fresh-repo";
+    rmSync(freshDir, { recursive: true, force: true });
+    mkdirSync(freshDir, { recursive: true });
+    try {
+      execFileSync("git", ["init"], { cwd: freshDir, encoding: "utf-8" });
+      // Add an untracked file but make no commits
+      writeFileSync(join(freshDir, "readme.txt"), "hello world");
+      const hash = computeWorktreeHash(freshDir);
+      expect(hash).toMatch(/^[0-9a-f]{64}$/);
+    } finally {
+      rmSync(freshDir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("checkStale", () => {
-  it("returns 2 when no session exists", () => {
-    const stateDir = join(TEST_DIR, ".review-orchestra");
-    mkdirSync(stateDir, { recursive: true });
-    // No session.json file
-    const result = checkStale(stateDir, TEST_DIR);
-    expect(result).toBe(2);
-  });
-
-  it("returns 2 when session exists but has no rounds", () => {
-    const stateDir = join(TEST_DIR, ".review-orchestra");
-    mkdirSync(stateDir, { recursive: true });
-    writeFileSync(
-      join(stateDir, "session.json"),
-      JSON.stringify({
-        sessionId: "20260315-143022",
-        status: "active",
-        currentRound: 0,
-        rounds: [],
-        scope: null,
-        worktreeHash: "",
-        startedAt: "2026-03-15T14:30:22Z",
-        completedAt: null,
-      }),
-    );
-    const result = checkStale(stateDir, TEST_DIR);
+  it("returns 2 when lastWorktreeHash is null (no session)", () => {
+    const result = checkStale(null, TEST_DIR);
     expect(result).toBe(2);
   });
 
   it("returns 0 when current hash matches stored hash (fresh)", () => {
-    const stateDir = join(TEST_DIR, ".review-orchestra");
-    mkdirSync(stateDir, { recursive: true });
-
-    // .review-orchestra/ should be gitignored in real usage
-    writeFileSync(join(TEST_DIR, ".gitignore"), ".review-orchestra/\n");
-    git("add", ".gitignore");
-    git("commit", "-m", "add gitignore");
-
     const currentHash = computeWorktreeHash(TEST_DIR);
-    writeFileSync(
-      join(stateDir, "session.json"),
-      JSON.stringify({
-        sessionId: "20260315-143022",
-        status: "active",
-        currentRound: 1,
-        rounds: [
-          {
-            number: 1,
-            phase: "complete",
-            reviews: {},
-            consolidated: [],
-            worktreeHash: currentHash,
-            startedAt: "2026-03-15T14:30:22Z",
-            completedAt: "2026-03-15T14:31:00Z",
-          },
-        ],
-        scope: null,
-        worktreeHash: currentHash,
-        startedAt: "2026-03-15T14:30:22Z",
-        completedAt: null,
-      }),
-    );
-    const result = checkStale(stateDir, TEST_DIR);
+    const result = checkStale(currentHash, TEST_DIR);
     expect(result).toBe(0);
   });
 
   it("returns 1 when current hash differs from stored hash (stale)", () => {
-    const stateDir = join(TEST_DIR, ".review-orchestra");
-    mkdirSync(stateDir, { recursive: true });
-
-    writeFileSync(
-      join(stateDir, "session.json"),
-      JSON.stringify({
-        sessionId: "20260315-143022",
-        status: "active",
-        currentRound: 1,
-        rounds: [
-          {
-            number: 1,
-            phase: "complete",
-            reviews: {},
-            consolidated: [],
-            worktreeHash: "old-hash-that-no-longer-matches",
-            startedAt: "2026-03-15T14:30:22Z",
-            completedAt: "2026-03-15T14:31:00Z",
-          },
-        ],
-        scope: null,
-        worktreeHash: "old-hash-that-no-longer-matches",
-        startedAt: "2026-03-15T14:30:22Z",
-        completedAt: null,
-      }),
-    );
-    const result = checkStale(stateDir, TEST_DIR);
+    const result = checkStale("old-hash-that-no-longer-matches", TEST_DIR);
     expect(result).toBe(1);
   });
 
-  it("compares against the last round's worktreeHash", () => {
-    const stateDir = join(TEST_DIR, ".review-orchestra");
-    mkdirSync(stateDir, { recursive: true });
-
-    // .review-orchestra/ should be gitignored in real usage
-    writeFileSync(join(TEST_DIR, ".gitignore"), ".review-orchestra/\n");
-    git("add", ".gitignore");
-    git("commit", "-m", "add gitignore");
-
+  it("compares against the provided worktreeHash", () => {
     const currentHash = computeWorktreeHash(TEST_DIR);
-    writeFileSync(
-      join(stateDir, "session.json"),
-      JSON.stringify({
-        sessionId: "20260315-143022",
-        status: "active",
-        currentRound: 2,
-        rounds: [
-          {
-            number: 1,
-            phase: "complete",
-            reviews: {},
-            consolidated: [],
-            worktreeHash: "round1-hash",
-            startedAt: "2026-03-15T14:30:22Z",
-            completedAt: "2026-03-15T14:31:00Z",
-          },
-          {
-            number: 2,
-            phase: "complete",
-            reviews: {},
-            consolidated: [],
-            worktreeHash: currentHash,
-            startedAt: "2026-03-15T14:35:00Z",
-            completedAt: "2026-03-15T14:36:00Z",
-          },
-        ],
-        scope: null,
-        worktreeHash: currentHash,
-        startedAt: "2026-03-15T14:30:22Z",
-        completedAt: null,
-      }),
-    );
-    // Should be fresh since current hash matches last round's hash
-    const result = checkStale(stateDir, TEST_DIR);
-    expect(result).toBe(0);
+    // Matching hash → fresh
+    expect(checkStale(currentHash, TEST_DIR)).toBe(0);
+    // Non-matching hash → stale
+    expect(checkStale("different-hash", TEST_DIR)).toBe(1);
   });
 });

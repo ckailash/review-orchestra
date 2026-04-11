@@ -1,7 +1,7 @@
 import { readFileSync, mkdirSync, existsSync, unlinkSync } from "fs";
 import { join, dirname } from "path";
-import type { Reviewer } from "./types";
-import type { DiffScope, Finding, ReviewerConfig } from "../types";
+import type { Reviewer, ReviewerResult } from "./types";
+import type { DiffScope, ReviewerConfig } from "../types";
 import { parseReviewerOutput } from "../reviewer-parser";
 import { buildReviewPrompt } from "./prompt";
 import { parseCommand } from "./command";
@@ -16,7 +16,7 @@ export class CodexReviewer implements Reviewer {
     private stateDir: string
   ) {}
 
-  async review(prompt: string, scope: DiffScope): Promise<Finding[]> {
+  async review(prompt: string, scope: DiffScope): Promise<ReviewerResult> {
     const fullPrompt = buildReviewPrompt(prompt, scope);
     const outputFile = join(this.stateDir, `codex-output-${Date.now()}.json`);
 
@@ -38,20 +38,21 @@ export class CodexReviewer implements Reviewer {
         args,
         input: fullPrompt,
         label: "codex",
+        inactivityTimeout: Math.max(10 * 60 * 1000, scope.files.length * 30 * 1000),
       });
       logTiming("codex: review complete", startMs);
 
-      let result: Finding[];
+      let rawOutput: string;
       if (existsSync(outputFile)) {
-        const fileOutput = readFileSync(outputFile, "utf-8");
-        log(`codex: reading output from file (${fileOutput.length} bytes)`);
-        result = parseReviewerOutput(fileOutput, this.name);
+        rawOutput = readFileSync(outputFile, "utf-8");
+        log(`codex: reading output from file (${rawOutput.length} bytes)`);
       } else {
-        log(`codex: no output file, parsing stdout (${stdout.length} bytes)`);
-        result = parseReviewerOutput(stdout, this.name);
+        rawOutput = stdout;
+        log(`codex: no output file, parsing stdout (${rawOutput.length} bytes)`);
       }
+      const result = parseReviewerOutput(rawOutput, this.name);
       log(`codex: parsed ${result.length} findings`);
-      return result;
+      return { findings: result, rawOutput };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       logTiming(`codex: FAILED — ${message.slice(0, 200)}`, startMs);

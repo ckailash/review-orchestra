@@ -1,5 +1,5 @@
-import type { Reviewer } from "./types";
-import type { DiffScope, Finding, ReviewerConfig } from "../types";
+import type { Reviewer, ReviewerResult } from "./types";
+import type { DiffScope, ReviewerConfig } from "../types";
 import { parseReviewerOutput } from "../reviewer-parser";
 import { buildReviewPrompt } from "./prompt";
 import { parseCommand } from "./command";
@@ -11,7 +11,7 @@ export class ClaudeReviewer implements Reviewer {
 
   constructor(private config: ReviewerConfig) {}
 
-  async review(prompt: string, scope: DiffScope): Promise<Finding[]> {
+  async review(prompt: string, scope: DiffScope): Promise<ReviewerResult> {
     const fullPrompt = buildReviewPrompt(prompt, scope);
     const { bin, args } = parseCommand(this.config.command);
     if (this.config.model) {
@@ -33,11 +33,12 @@ export class ClaudeReviewer implements Reviewer {
         input: fullPrompt,
         env,
         label: "claude",
+        inactivityTimeout: Math.max(10 * 60 * 1000, scope.files.length * 30 * 1000),
       });
       logTiming("claude: review complete", startMs);
       const findings = parseReviewerOutput(output, this.name);
       log(`claude: parsed ${findings.length} findings from ${output.length} bytes of output`);
-      return findings;
+      return { findings, rawOutput: output };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       logTiming(`claude: FAILED — ${message.slice(0, 200)}`, startMs);

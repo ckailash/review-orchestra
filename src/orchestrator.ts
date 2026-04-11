@@ -1,4 +1,4 @@
-import { readFileSync } from "fs";
+import { readFileSync, writeFileSync, mkdirSync } from "fs";
 import { join } from "path";
 import { log } from "./log";
 import type {
@@ -114,10 +114,12 @@ export class Orchestrator {
           const reviewResult = await this.runReviews(scope);
           this.reviewers = previousReviewers;
 
-          // Merge with already-completed reviewer findings
+          // Merge with already-completed reviewer findings (from before crash)
           allFindings = [...reviewResult.findings];
-          for (const [, output] of Object.entries(round.reviews)) {
-            allFindings.push(...output.findings);
+          for (const [name, output] of Object.entries(round.reviews)) {
+            if (completedSet.has(name)) {
+              allFindings.push(...output.findings);
+            }
           }
           reviewerErrors = reviewResult.reviewerErrors;
         }
@@ -194,7 +196,20 @@ export class Orchestrator {
     log(`dispatching reviewers: ${reviewerNames}`);
     const results = await Promise.allSettled(
       this.reviewers.map(async (reviewer) => {
-        const findings = await reviewer.review(this.reviewPrompt, scope);
+        const { findings, rawOutput } = await reviewer.review(this.reviewPrompt, scope);
+
+        // Save raw reviewer output for debugging parse failures
+        try {
+          const roundNumber = this.state.getState().currentRound;
+          mkdirSync(this.stateDir, { recursive: true });
+          writeFileSync(
+            join(this.stateDir, `round-${roundNumber}-${reviewer.name}-raw.txt`),
+            rawOutput
+          );
+        } catch (err) {
+          log(`warning: failed to save raw output for ${reviewer.name}: ${err instanceof Error ? err.message : String(err)}`);
+        }
+
         this.state.saveReview(reviewer.name, {
           findings,
           metadata: {

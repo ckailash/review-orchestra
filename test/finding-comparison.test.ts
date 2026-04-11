@@ -139,6 +139,44 @@ describe("finding comparison", () => {
       expect(result.resolvedFindings.map(f => f.id).sort()).toEqual(["r1-f-002", "r1-f-003"]);
     });
 
+    it("treats findings at different lines as same when file + title match", () => {
+      const previous = [
+        makeFinding({ id: "r1-f-001", file: "src/auth.ts", line: 10, title: "Null check missing" }),
+        makeFinding({ id: "r1-f-002", file: "src/auth.ts", line: 50, title: "Null check missing" }),
+      ];
+      const current = [
+        makeFinding({ file: "src/auth.ts", line: 10, title: "Null check missing" }),
+        makeFinding({ file: "src/auth.ts", line: 50, title: "Null check missing" }),
+      ];
+
+      const result = compareFindings(current, previous);
+
+      // With file + title key (no line), both previous entries map to the same key.
+      // The Map keeps the last one (r1-f-002). Both current entries also map to the
+      // same key and both match against the Map entry, so both become persisting
+      // with the same preserved ID.
+      expect(result.persistingFindings).toHaveLength(2);
+      expect(result.persistingFindings.every(f => f.id === "r1-f-002")).toBe(true);
+      expect(result.newFindings).toHaveLength(0);
+      expect(result.resolvedFindings).toHaveLength(0);
+    });
+
+    it("matches findings with same file, line, and title (exact match)", () => {
+      const previous = [
+        makeFinding({ id: "r1-f-001", file: "src/auth.ts", line: 42, title: "SQL injection" }),
+      ];
+      const current = [
+        makeFinding({ file: "src/auth.ts", line: 42, title: "SQL injection" }),
+      ];
+
+      const result = compareFindings(current, previous);
+
+      expect(result.persistingFindings).toHaveLength(1);
+      expect(result.persistingFindings[0].id).toBe("r1-f-001");
+      expect(result.newFindings).toHaveLength(0);
+      expect(result.resolvedFindings).toHaveLength(0);
+    });
+
     it("returns resolved findings as-is from previous round", () => {
       const previous = [
         makeFinding({

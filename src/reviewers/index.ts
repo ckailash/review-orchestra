@@ -1,5 +1,5 @@
-import type { Config, DiffScope, Finding, ReviewerConfig } from "../types";
-import type { Reviewer } from "./types";
+import type { Config, DiffScope, ReviewerConfig } from "../types";
+import type { Reviewer, ReviewerResult } from "./types";
 import { ClaudeReviewer } from "./claude";
 import { CodexReviewer } from "./codex";
 import { parseReviewerOutput } from "../reviewer-parser";
@@ -40,7 +40,7 @@ class GenericReviewer implements Reviewer {
     this.name = name;
   }
 
-  async review(prompt: string, scope: DiffScope): Promise<Finding[]> {
+  async review(prompt: string, scope: DiffScope): Promise<ReviewerResult> {
     const fullPrompt = buildReviewPrompt(prompt, scope);
 
     const { bin, args: templateArgs } = parseCommand(this.config.command);
@@ -68,7 +68,7 @@ class GenericReviewer implements Reviewer {
       logTiming(`${this.name}: review complete`, startMs);
       const findings = parseReviewerOutput(output, this.name);
       log(`${this.name}: parsed ${findings.length} findings`);
-      return findings;
+      return { findings, rawOutput: output };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       logTiming(`${this.name}: FAILED — ${message.slice(0, 200)}`, startMs);

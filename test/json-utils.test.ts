@@ -79,8 +79,32 @@ describe("unwrapCliEnvelope", () => {
     expect(unwrapCliEnvelope(obj)).toBe(obj);
   });
 
-  it("passes through arrays unchanged", () => {
+  it("passes through plain arrays unchanged", () => {
     const arr = [1, 2, 3];
+    expect(unwrapCliEnvelope(arr)).toBe(arr);
+  });
+
+  it("unwraps streaming JSON array by finding type:result element", () => {
+    const findings = { findings: [{ id: "f-001", title: "SQL injection" }] };
+    const streamingArray = [
+      { type: "system", subtype: "init", session_id: "abc" },
+      { type: "assistant", message: { role: "assistant", content: "reviewing..." } },
+      { type: "result", subtype: "success", result: "```json\n" + JSON.stringify(findings) + "\n```" },
+    ];
+    expect(unwrapCliEnvelope(streamingArray)).toEqual(findings);
+  });
+
+  it("unwraps streaming JSON array with direct object result", () => {
+    const findings = { findings: [{ id: "f-002" }] };
+    const streamingArray = [
+      { type: "system", subtype: "init" },
+      { type: "result", result: findings },
+    ];
+    expect(unwrapCliEnvelope(streamingArray)).toEqual(findings);
+  });
+
+  it("passes through array unchanged when no type:result element exists", () => {
+    const arr = [{ type: "system" }, { type: "assistant" }];
     expect(unwrapCliEnvelope(arr)).toBe(arr);
   });
 

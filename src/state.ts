@@ -73,6 +73,10 @@ function hasScopeBaseChanged(
   ) {
     return true;
   }
+  // Detect scope description changes (e.g., different commit ranges with same base)
+  if (existingScope.description !== newScope.description) {
+    return true;
+  }
   return false;
 }
 

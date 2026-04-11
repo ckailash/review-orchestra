@@ -12,17 +12,17 @@ export interface AssignedResult {
 }
 
 /**
- * Build a comparison key for a finding: file + lowercased title.
+ * Build a comparison key for a finding: file + title.toLowerCase().
  * This is the best-effort matching heuristic described in the plan.
  */
 function comparisonKey(finding: Finding): string {
-  return `${finding.file}\0${finding.title.toLowerCase()}`;
+  return `${finding.file}\0${finding.title.toLowerCase().trim()}`;
 }
 
 /**
  * Compare current round's findings against previous round's findings.
  *
- * Matching uses file (exact) + title.toLowerCase() (case-insensitive).
+ * Matching uses file + title.toLowerCase() (case-insensitive).
  *
  * Returns:
  * - newFindings: in current but not in previous

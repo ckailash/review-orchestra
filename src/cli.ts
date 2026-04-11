@@ -1,6 +1,6 @@
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
-import { existsSync, rmSync } from "fs";
+import { existsSync, readFileSync, rmSync } from "fs";
 import { detectScope } from "./scope";
 import { loadConfig } from "./config";
 import {
@@ -119,7 +119,23 @@ function runReset(): void {
 }
 
 function runStale(): void {
-  const code = checkStale(STATE_DIR);
+  // Read session to get last worktree hash
+  let lastHash: string | null = null;
+  const sessionFile = join(STATE_DIR, "session.json");
+  if (existsSync(sessionFile)) {
+    try {
+      const raw = readFileSync(sessionFile, "utf-8");
+      const state = JSON.parse(raw);
+      if (state.rounds?.length > 0) {
+        const lastRound = state.rounds[state.rounds.length - 1];
+        lastHash = lastRound?.worktreeHash ?? null;
+      }
+    } catch {
+      // Can't read session — treat as no session
+    }
+  }
+
+  const code = checkStale(lastHash);
 
   switch (code) {
     case 0:

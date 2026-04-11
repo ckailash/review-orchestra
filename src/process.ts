@@ -2,7 +2,7 @@ import { spawn } from "child_process";
 import { log } from "./log";
 
 const DEFAULT_CATASTROPHIC_TIMEOUT = 30 * 60 * 1000; // 30 minutes
-const DEFAULT_INACTIVITY_TIMEOUT = 5 * 60 * 1000; // 5 minutes
+const DEFAULT_INACTIVITY_TIMEOUT = 10 * 60 * 1000; // 10 minutes
 
 export interface SpawnOptions {
   bin: string;

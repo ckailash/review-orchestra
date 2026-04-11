@@ -380,6 +380,92 @@ describe("SessionManager", () => {
       ).not.toThrow();
     });
 
+    it("expires session when scope description changes (e.g., different commit ranges)", () => {
+      const activeState: SessionState = {
+        sessionId: "20260315-143022",
+        status: "active",
+        currentRound: 1,
+        rounds: [
+          {
+            number: 1,
+            phase: "complete",
+            reviews: {},
+            consolidated: [],
+            worktreeHash: "hash1",
+            startedAt: "2026-03-15T14:30:22Z",
+            completedAt: "2026-03-15T14:31:00Z",
+          },
+        ],
+        scope: makeScope({
+          type: "commit",
+          baseBranch: "main",
+          baseCommitSha: "abc123",
+          description: "Changes in abc1234..def5678",
+        }),
+        worktreeHash: "hash1",
+        startedAt: "2026-03-15T14:30:22Z",
+        completedAt: null,
+      };
+      writeFileSync(
+        join(TEST_DIR, "session.json"),
+        JSON.stringify(activeState, null, 2),
+      );
+
+      const sm = new SessionManager(TEST_DIR);
+      // Same type, baseBranch, baseCommitSha — but different description
+      expect(() =>
+        sm.startOrContinue(
+          makeScope({
+            type: "commit",
+            baseBranch: "main",
+            baseCommitSha: "abc123",
+            description: "Changes in abc1234..fed8765",
+          }),
+        ),
+      ).toThrow(/expired|reset/i);
+
+      const persisted = JSON.parse(
+        readFileSync(join(TEST_DIR, "session.json"), "utf-8"),
+      );
+      expect(persisted.status).toBe("expired");
+    });
+
+    it("releases lock when session expires due to scope base change", () => {
+      const activeState: SessionState = {
+        sessionId: "20260315-143022",
+        status: "active",
+        currentRound: 1,
+        rounds: [
+          {
+            number: 1,
+            phase: "complete",
+            reviews: {},
+            consolidated: [],
+            worktreeHash: "hash1",
+            startedAt: "2026-03-15T14:30:22Z",
+            completedAt: "2026-03-15T14:31:00Z",
+          },
+        ],
+        scope: makeScope({ baseBranch: "main" }),
+        worktreeHash: "hash1",
+        startedAt: "2026-03-15T14:30:22Z",
+        completedAt: null,
+      };
+      writeFileSync(
+        join(TEST_DIR, "session.json"),
+        JSON.stringify(activeState, null, 2),
+      );
+
+      const sm = new SessionManager(TEST_DIR);
+      // Scope base has changed from "main" to "develop" — should throw
+      expect(() =>
+        sm.startOrContinue(makeScope({ baseBranch: "develop" })),
+      ).toThrow(/expired|reset/i);
+
+      // Lock file (state.lock) should NOT exist after the throw
+      expect(existsSync(join(TEST_DIR, "state.lock"))).toBe(false);
+    });
+
     it("expires session when scope type changes", () => {
       const activeState: SessionState = {
         sessionId: "20260315-143022",
