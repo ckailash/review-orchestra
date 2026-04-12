@@ -83,8 +83,8 @@ async function runReview(remaining: string[]): Promise<void> {
     onRoundStart(round) {
       console.error(`[review-orchestra] === Round ${round} ===`);
     },
-    onReviewComplete(reviewer, findings) {
-      console.error(`[review-orchestra] ${reviewer}: ${findings.length} findings`);
+    onReviewComplete(_reviewer, _findings) {
+      // Per-reviewer done message is now logged by the reviewer adapter itself
     },
     onReviewerError(reviewer, error) {
       console.error(`[review-orchestra] WARNING: ${reviewer} failed: ${error}`);

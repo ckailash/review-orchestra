@@ -35,10 +35,10 @@ export class ClaudeReviewer implements Reviewer {
         label: "claude",
         inactivityTimeout: Math.max(10 * 60 * 1000, scope.files.length * 30 * 1000),
       });
-      logTiming("claude: review complete", startMs);
+      const elapsedMs = Date.now() - startMs;
       const findings = parseReviewerOutput(output, this.name);
-      log(`claude: parsed ${findings.length} findings from ${output.length} bytes of output`);
-      return { findings, rawOutput: output };
+      log(`claude: done (${findings.length} findings, ${(elapsedMs / 1000).toFixed(1)}s)`);
+      return { findings, rawOutput: output, elapsedMs };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       logTiming(`claude: FAILED — ${message.slice(0, 200)}`, startMs);

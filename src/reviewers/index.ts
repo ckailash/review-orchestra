@@ -44,7 +44,10 @@ class GenericReviewer implements Reviewer {
     const fullPrompt = buildReviewPrompt(prompt, scope);
 
     const { bin, args: templateArgs } = parseCommand(this.config.command);
-    const args = templateArgs.map(a => a.replace("{prompt}", fullPrompt));
+    const hasPromptPlaceholder = templateArgs.some(a => a.includes("{prompt}"));
+    const args = hasPromptPlaceholder
+      ? templateArgs.map(a => a.replace("{prompt}", fullPrompt))
+      : templateArgs;
     if (this.config.model) {
       args.push("--model", this.config.model);
     }
@@ -61,14 +64,14 @@ class GenericReviewer implements Reviewer {
       const output = await spawnWithStreaming({
         bin,
         args,
-        input: fullPrompt,
+        input: hasPromptPlaceholder ? undefined : fullPrompt,
         env,
         label: this.name,
       });
-      logTiming(`${this.name}: review complete`, startMs);
+      const elapsedMs = Date.now() - startMs;
       const findings = parseReviewerOutput(output, this.name);
-      log(`${this.name}: parsed ${findings.length} findings`);
-      return { findings, rawOutput: output };
+      log(`${this.name}: done (${findings.length} findings, ${(elapsedMs / 1000).toFixed(1)}s)`);
+      return { findings, rawOutput: output, elapsedMs };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       logTiming(`${this.name}: FAILED — ${message.slice(0, 200)}`, startMs);

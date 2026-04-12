@@ -16,6 +16,9 @@ import { detectToolchain, formatToolchainContext } from "./toolchain";
 import { runPreflight } from "./preflight";
 import { computeWorktreeHash } from "./worktree-hash";
 import { assignFindingIds } from "./finding-comparison";
+import { appendFindings, backfillResolved } from "./findings-store";
+import type { ProgressData } from "./progress";
+import { writeProgress, clearProgress } from "./progress";
 
 export interface OrchestratorCallbacks {
   onPreflightWarning?(warnings: string[]): void;
@@ -56,10 +59,11 @@ export class Orchestrator {
     }
 
     // Disable reviewers whose binaries are missing (warn, don't fail)
+    let activeReviewers = this.reviewers;
     if (preflight.disabledReviewers.length > 0) {
-      for (const name of preflight.disabledReviewers) {
-        this.reviewers = this.reviewers.filter((r) => r.name !== name);
-      }
+      activeReviewers = activeReviewers.filter(
+        (r) => !preflight.disabledReviewers.includes(r.name),
+      );
       this.callbacks.onPreflightWarning?.(preflight.warnings);
     }
 
@@ -71,6 +75,7 @@ export class Orchestrator {
       let round;
       let allFindings: Finding[];
       let reviewerErrors: Array<{ reviewer: string; error: string }>;
+      let timings: Array<{ name: string; elapsedMs: number }> = [];
 
       if (recovery.isRecovery && recovery.phase === "consolidating") {
         // Crash during consolidation — resume with already-saved review data
@@ -86,16 +91,19 @@ export class Orchestrator {
 
         // Re-run consolidation
         this.state.updatePhase("consolidating");
+        const consolStart = Date.now();
         const consolidated = consolidate(allFindings, scope.diff);
+        const consolElapsed = Date.now() - consolStart;
         this.state.saveConsolidated(consolidated);
         this.callbacks.onConsolidated?.(consolidated);
+        log(`review complete (consolidation ${(consolElapsed / 1000).toFixed(1)}s)`);
       } else if (recovery.isRecovery && recovery.phase === "reviewing") {
         // Crash during reviewing — resume, skip completed reviewers
         round = this.state.getCurrentRound()!;
         this.callbacks.onRoundStart?.(round.number);
 
         const completedSet = new Set(recovery.completedReviewers ?? []);
-        const remainingReviewers = this.reviewers.filter(
+        const remainingReviewers = activeReviewers.filter(
           (r) => !completedSet.has(r.name),
         );
 
@@ -107,12 +115,19 @@ export class Orchestrator {
             allFindings.push(...output.findings);
           }
         } else {
-          // Run only remaining reviewers
+          // Run only remaining reviewers — pass completed reviewer info for progress.json
           this.state.updatePhase("reviewing");
-          const previousReviewers = this.reviewers;
-          this.reviewers = remainingReviewers;
-          const reviewResult = await this.runReviews(scope);
-          this.reviewers = previousReviewers;
+          const completedEntries: Record<string, { status: "done"; findingsCount: number; elapsedMs: number | null }> = {};
+          for (const [name, output] of Object.entries(round.reviews)) {
+            if (completedSet.has(name)) {
+              completedEntries[name] = {
+                status: "done",
+                findingsCount: output.findings.length,
+                elapsedMs: null,
+              };
+            }
+          }
+          const reviewResult = await this.runReviews(scope, remainingReviewers, completedEntries);
 
           // Merge with already-completed reviewer findings (from before crash)
           allFindings = [...reviewResult.findings];
@@ -122,13 +137,17 @@ export class Orchestrator {
             }
           }
           reviewerErrors = reviewResult.reviewerErrors;
+          timings = reviewResult.timings;
         }
 
         // Phase 2: Consolidation
         this.state.updatePhase("consolidating");
+        const consolStart = Date.now();
         const consolidated = consolidate(allFindings, scope.diff);
+        const consolElapsed = Date.now() - consolStart;
         this.state.saveConsolidated(consolidated);
         this.callbacks.onConsolidated?.(consolidated);
+        log(`review complete (${timings.map(t => `${t.name} ${(t.elapsedMs / 1000).toFixed(1)}s`).join(", ")}${timings.length > 0 ? ", " : ""}consolidation ${(consolElapsed / 1000).toFixed(1)}s)`);
       } else {
         // Normal flow — create a new round
         round = this.state.newRound(worktreeHash);
@@ -136,15 +155,19 @@ export class Orchestrator {
 
         // Phase 1: Parallel Review
         this.state.updatePhase("reviewing");
-        const reviewResult = await this.runReviews(scope);
+        const reviewResult = await this.runReviews(scope, activeReviewers);
         allFindings = reviewResult.findings;
         reviewerErrors = reviewResult.reviewerErrors;
+        timings = reviewResult.timings;
 
         // Phase 2: Consolidation
         this.state.updatePhase("consolidating");
+        const consolStart = Date.now();
         const consolidated = consolidate(allFindings, scope.diff);
+        const consolElapsed = Date.now() - consolStart;
         this.state.saveConsolidated(consolidated);
         this.callbacks.onConsolidated?.(consolidated);
+        log(`review complete (${timings.map(t => `${t.name} ${(t.elapsedMs / 1000).toFixed(1)}s`).join(", ")}, consolidation ${(consolElapsed / 1000).toFixed(1)}s)`);
       }
 
       // Phase 3: Finding comparison — assign IDs and statuses
@@ -157,12 +180,39 @@ export class Orchestrator {
       // Update consolidated findings with IDs and statuses
       this.state.saveConsolidated(comparedFindings);
 
+      // Persist findings to ~/.review-orchestra/findings.jsonl
+      const sessionState = this.state.getState();
+      try {
+        appendFindings({
+          findings: comparedFindings,
+          sessionId: sessionState.sessionId,
+          round: round.number,
+          project: process.cwd(),
+        });
+      } catch (err) {
+        log(`warning: failed to append findings: ${err instanceof Error ? err.message : String(err)}`);
+      }
+
+      if (resolvedFindings.length > 0) {
+        try {
+          backfillResolved({
+            resolvedFindings,
+            sessionId: sessionState.sessionId,
+            resolvedInRound: round.number,
+          });
+        } catch (err) {
+          log(`warning: failed to backfill resolved findings: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+
+      // Clean up progress.json — round is complete
+      clearProgress(this.stateDir);
+
       // Mark round complete and release lock without changing session status
       this.state.updatePhase("complete");
       this.state.releaseLock();
 
       // Build ReviewResult
-      const sessionState = this.state.getState();
       const result: ReviewResult = {
         sessionId: sessionState.sessionId,
         round: round.number,
@@ -172,7 +222,7 @@ export class Orchestrator {
         worktreeHash: sessionState.worktreeHash,
         scope,
         metadata: {
-          reviewer: this.reviewers.map((r) => r.name).join(","),
+          reviewer: activeReviewers.map((r) => r.name).join(","),
           round: round.number,
           timestamp: new Date().toISOString(),
           files_reviewed: scope.files.length,
@@ -183,63 +233,135 @@ export class Orchestrator {
       this.callbacks.onComplete?.(result);
       return result;
     } catch (err) {
+      clearProgress(this.stateDir);
       this.state.fail();
       throw err;
     }
   }
 
   private async runReviews(
-    scope: DiffScope
-  ): Promise<{ findings: Finding[]; reviewerErrors: Array<{ reviewer: string; error: string }> }> {
+    scope: DiffScope,
+    reviewers: Reviewer[],
+    completedReviewerEntries?: Record<string, { status: "done"; findingsCount: number; elapsedMs: number | null }>
+  ): Promise<{
+    findings: Finding[];
+    reviewerErrors: Array<{ reviewer: string; error: string }>;
+    timings: Array<{ name: string; elapsedMs: number }>;
+  }> {
     // Reviewers use spawn (async) so Promise.allSettled runs them in parallel
-    const reviewerNames = this.reviewers.map((r) => r.name).join(", ");
+    const reviewerNames = reviewers.map((r) => r.name).join(", ");
     log(`dispatching reviewers: ${reviewerNames}`);
+    const reviewerStartMs = Date.now();
+
+    // Build initial progress state
+    const round = this.state.getState().currentRound;
+    const progress: ProgressData = {
+      round,
+      startedAt: new Date().toISOString(),
+      reviewers: {},
+    };
+
+    // Include already-completed reviewers from crash recovery
+    if (completedReviewerEntries) {
+      for (const [name, entry] of Object.entries(completedReviewerEntries)) {
+        progress.reviewers[name] = {
+          status: entry.status,
+          findingsCount: entry.findingsCount,
+          elapsedMs: entry.elapsedMs,
+        };
+      }
+    }
+
+    // Set all active reviewers to running
+    for (const reviewer of reviewers) {
+      progress.reviewers[reviewer.name] = {
+        status: "running",
+        findingsCount: null,
+        elapsedMs: null,
+      };
+    }
+    writeProgress(this.stateDir, progress);
+
     const results = await Promise.allSettled(
-      this.reviewers.map(async (reviewer) => {
-        const { findings, rawOutput } = await reviewer.review(this.reviewPrompt, scope);
-
-        // Save raw reviewer output for debugging parse failures
+      reviewers.map(async (reviewer) => {
+        const startMs = Date.now();
         try {
-          const roundNumber = this.state.getState().currentRound;
-          mkdirSync(this.stateDir, { recursive: true });
-          writeFileSync(
-            join(this.stateDir, `round-${roundNumber}-${reviewer.name}-raw.txt`),
-            rawOutput
-          );
-        } catch (err) {
-          log(`warning: failed to save raw output for ${reviewer.name}: ${err instanceof Error ? err.message : String(err)}`);
-        }
+          const reviewerResult = await reviewer.review(this.reviewPrompt, scope);
+          const { findings, rawOutput } = reviewerResult;
+          const elapsedMs = reviewerResult.elapsedMs ?? (Date.now() - startMs);
 
-        this.state.saveReview(reviewer.name, {
-          findings,
-          metadata: {
-            reviewer: reviewer.name,
-            round: this.state.getState().currentRound,
-            timestamp: new Date().toISOString(),
-            files_reviewed: scope.files.length,
-            diff_scope: scope.description,
-          },
-        });
-        this.callbacks.onReviewComplete?.(reviewer.name, findings);
-        return findings;
+          // Update progress.json — this reviewer is done
+          progress.reviewers[reviewer.name] = {
+            status: "done",
+            findingsCount: findings.length,
+            elapsedMs,
+          };
+          writeProgress(this.stateDir, progress);
+
+          // Save raw reviewer output for debugging parse failures
+          try {
+            const roundNumber = this.state.getState().currentRound;
+            mkdirSync(this.stateDir, { recursive: true });
+            writeFileSync(
+              join(this.stateDir, `round-${roundNumber}-${reviewer.name}-raw.txt`),
+              rawOutput
+            );
+          } catch (err) {
+            log(`warning: failed to save raw output for ${reviewer.name}: ${err instanceof Error ? err.message : String(err)}`);
+          }
+
+          this.state.saveReview(reviewer.name, {
+            findings,
+            metadata: {
+              reviewer: reviewer.name,
+              round: this.state.getState().currentRound,
+              timestamp: new Date().toISOString(),
+              files_reviewed: scope.files.length,
+              diff_scope: scope.description,
+            },
+          });
+          this.callbacks.onReviewComplete?.(reviewer.name, findings);
+          return { findings, elapsedMs };
+        } catch (err) {
+          const elapsedMs = Date.now() - startMs;
+
+          // Update progress.json — this reviewer errored
+          progress.reviewers[reviewer.name] = {
+            status: "error",
+            findingsCount: null,
+            elapsedMs,
+          };
+          writeProgress(this.stateDir, progress);
+
+          throw err;
+        }
       })
     );
 
     const allFindings: Finding[] = [];
     const reviewerErrors: Array<{ reviewer: string; error: string }> = [];
+    const timings: Array<{ name: string; elapsedMs: number }> = [];
     let succeededCount = 0;
     for (let i = 0; i < results.length; i++) {
       const result = results[i];
       if (result.status === "fulfilled") {
         succeededCount++;
-        allFindings.push(...result.value);
+        allFindings.push(...result.value.findings);
+        timings.push({
+          name: reviewers[i].name,
+          elapsedMs: result.value.elapsedMs,
+        });
       } else {
-        const reviewer = this.reviewers[i];
+        const reviewer = reviewers[i];
         const reason =
           result.reason instanceof Error
             ? result.reason.message
             : String(result.reason);
         reviewerErrors.push({ reviewer: reviewer.name, error: reason });
+        timings.push({
+          name: reviewer.name,
+          elapsedMs: progress.reviewers[reviewer.name]?.elapsedMs ?? 0,
+        });
         this.callbacks.onReviewerError?.(reviewer.name, reason);
       }
     }
@@ -248,6 +370,6 @@ export class Orchestrator {
       throw new Error("All reviewers failed — cannot determine review status");
     }
 
-    return { findings: allFindings, reviewerErrors };
+    return { findings: allFindings, reviewerErrors, timings };
   }
 }

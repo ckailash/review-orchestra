@@ -3,6 +3,7 @@ import type { DiffScope, Finding } from "../types";
 export interface ReviewerResult {
   findings: Finding[];
   rawOutput: string;
+  elapsedMs?: number;
 }
 
 export interface Reviewer {

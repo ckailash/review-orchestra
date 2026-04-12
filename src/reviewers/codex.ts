@@ -40,19 +40,17 @@ export class CodexReviewer implements Reviewer {
         label: "codex",
         inactivityTimeout: Math.max(10 * 60 * 1000, scope.files.length * 30 * 1000),
       });
-      logTiming("codex: review complete", startMs);
+      const elapsedMs = Date.now() - startMs;
 
       let rawOutput: string;
       if (existsSync(outputFile)) {
         rawOutput = readFileSync(outputFile, "utf-8");
-        log(`codex: reading output from file (${rawOutput.length} bytes)`);
       } else {
         rawOutput = stdout;
-        log(`codex: no output file, parsing stdout (${rawOutput.length} bytes)`);
       }
-      const result = parseReviewerOutput(rawOutput, this.name);
-      log(`codex: parsed ${result.length} findings`);
-      return { findings: result, rawOutput };
+      const findings = parseReviewerOutput(rawOutput, this.name);
+      log(`codex: done (${findings.length} findings, ${(elapsedMs / 1000).toFixed(1)}s)`);
+      return { findings, rawOutput, elapsedMs };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       logTiming(`codex: FAILED — ${message.slice(0, 200)}`, startMs);
