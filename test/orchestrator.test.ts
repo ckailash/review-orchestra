@@ -204,7 +204,7 @@ describe("Orchestrator", () => {
     const { createReviewers } = await import("../src/reviewers/index");
 
     const savedFinding = makeFinding({ id: "saved-001", title: "Saved finding from reviewer-a", reviewer: "reviewer-a" });
-    const newFinding = makeFinding({ id: "new-001", title: "New finding from reviewer-b", reviewer: "reviewer-b" });
+    const newFinding = makeFinding({ id: "new-001", title: "New finding from reviewer-b", reviewer: "reviewer-b", file: "src/api.ts", category: "error-handling" });
 
     vi.mocked(createReviewers).mockReturnValue([
       {

@@ -1,4 +1,5 @@
 import type { Finding, PLevel } from "./types";
+import { isFuzzyMatch } from "./fuzzy-match";
 
 interface DiffHunk {
   file: string;
@@ -61,6 +62,92 @@ function countPopulatedOptionalFields(f: Finding): number {
   return count;
 }
 
+function mergeFuzzyPair(a: Finding, b: Finding): Finding {
+  const sevA = P_LEVEL_ORDER[a.severity];
+  const sevB = P_LEVEL_ORDER[b.severity];
+
+  let winner: Finding;
+  if (sevA < sevB) {
+    winner = a;
+  } else if (sevB < sevA) {
+    winner = b;
+  } else {
+    // Tie-break by populated optional fields
+    winner =
+      countPopulatedOptionalFields(a) >= countPopulatedOptionalFields(b)
+        ? a
+        : b;
+  }
+
+  // Comma-join reviewer names
+  const reviewer = `${a.reviewer},${b.reviewer}`;
+  return { ...winner, reviewer };
+}
+
+function parseReviewerSet(reviewer: string): Set<string> {
+  return new Set(reviewer.split(",").map((r) => r.trim()).filter(Boolean));
+}
+
+function setsAreDisjoint(a: Set<string>, b: Set<string>): boolean {
+  for (const item of a) {
+    if (b.has(item)) return false;
+  }
+  return true;
+}
+
+function fuzzyDeduplicate(findings: Finding[]): Finding[] {
+  // Group by file
+  const byFile = new Map<string, Finding[]>();
+  for (const f of findings) {
+    const group = byFile.get(f.file);
+    if (group) {
+      group.push(f);
+    } else {
+      byFile.set(f.file, [f]);
+    }
+  }
+
+  const merged = new Set<Finding>();
+
+  for (const group of byFile.values()) {
+    // Track which findings in this group have been consumed by a merge
+    const consumed = new Set<number>();
+    // Track reviewer identity as sets (splitting comma-joined strings)
+    const reviewerSets = new Map<number, Set<string>>();
+    for (let i = 0; i < group.length; i++) {
+      reviewerSets.set(i, parseReviewerSet(group[i].reviewer));
+    }
+
+    for (let i = 0; i < group.length; i++) {
+      if (consumed.has(i)) continue;
+
+      let current = group[i];
+      let currentReviewers = reviewerSets.get(i)!;
+
+      for (let j = i + 1; j < group.length; j++) {
+        if (consumed.has(j)) continue;
+
+        const other = group[j];
+        const otherReviewers = reviewerSets.get(j)!;
+
+        // Only merge cross-reviewer pairs (reviewer sets must be disjoint)
+        if (!setsAreDisjoint(currentReviewers, otherReviewers)) continue;
+
+        if (isFuzzyMatch(current, other)) {
+          current = mergeFuzzyPair(current, other);
+          // Union the reviewer sets after merge
+          currentReviewers = new Set([...currentReviewers, ...otherReviewers]);
+          consumed.add(j);
+        }
+      }
+
+      merged.add(current);
+    }
+  }
+
+  return [...merged];
+}
+
 export function consolidate(findings: Finding[], diff: string): Finding[] {
   if (findings.length === 0) return [];
 
@@ -86,10 +173,14 @@ export function consolidate(findings: Finding[], diff: string): Finding[] {
     }
   }
 
+  // Semantic (fuzzy) dedup: merge cross-reviewer near-duplicates
+  const exactDeduped = [...deduped.values()];
+  const semanticDeduped = fuzzyDeduplicate(exactDeduped);
+
   // Tag pre-existing
   // Findings with line=0 have unknown location — treat as NOT pre-existing
   const result: Finding[] = [];
-  for (const finding of deduped.values()) {
+  for (const finding of semanticDeduped) {
     const inDiff =
       finding.line === 0 ||
       (diffFiles.has(finding.file) &&

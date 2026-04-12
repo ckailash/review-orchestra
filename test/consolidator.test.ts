@@ -299,4 +299,219 @@ diff --git a/src/api.ts b/src/api.ts
       expect(apiOutside?.pre_existing).toBe(true);
     });
   });
+
+  describe("semantic (fuzzy) dedup", () => {
+    it("merges two findings from different reviewers, same file, same line, different titles for same bug (VAL-CON-001)", () => {
+      const findings: Finding[] = [
+        makeFinding({
+          id: "c-001",
+          reviewer: "claude",
+          file: "src/auth.ts",
+          line: 42,
+          title: "SQL injection vulnerability",
+          severity: "p1",
+          category: "security",
+        }),
+        makeFinding({
+          id: "x-001",
+          reviewer: "codex",
+          file: "src/auth.ts",
+          line: 42,
+          title: "Unsanitized SQL query input",
+          severity: "p1",
+          category: "security",
+        }),
+      ];
+
+      const result = consolidate(findings, simpleDiff);
+      expect(result).toHaveLength(1);
+    });
+
+    it("merged finding has comma-joined reviewer names (VAL-CON-002)", () => {
+      const findings: Finding[] = [
+        makeFinding({
+          id: "c-001",
+          reviewer: "claude",
+          file: "src/auth.ts",
+          line: 42,
+          title: "SQL injection vulnerability",
+          severity: "p1",
+          category: "security",
+        }),
+        makeFinding({
+          id: "x-001",
+          reviewer: "codex",
+          file: "src/auth.ts",
+          line: 42,
+          title: "Unsanitized SQL query input",
+          severity: "p1",
+          category: "security",
+        }),
+      ];
+
+      const result = consolidate(findings, simpleDiff);
+      expect(result).toHaveLength(1);
+      expect(result[0].reviewer).toBe("claude,codex");
+    });
+
+    it("merged finding keeps higher severity (VAL-CON-003)", () => {
+      const findings: Finding[] = [
+        makeFinding({
+          id: "c-001",
+          reviewer: "claude",
+          file: "src/auth.ts",
+          line: 42,
+          title: "SQL injection vulnerability",
+          severity: "p2",
+          category: "security",
+        }),
+        makeFinding({
+          id: "x-001",
+          reviewer: "codex",
+          file: "src/auth.ts",
+          line: 42,
+          title: "Unsanitized SQL query input",
+          severity: "p0",
+          category: "security",
+        }),
+      ];
+
+      const result = consolidate(findings, simpleDiff);
+      expect(result).toHaveLength(1);
+      expect(result[0].severity).toBe("p0");
+    });
+
+    it("merged finding keeps the one with more populated optional fields when severity ties (VAL-CON-004)", () => {
+      const findings: Finding[] = [
+        makeFinding({
+          id: "c-001",
+          reviewer: "claude",
+          file: "src/auth.ts",
+          line: 42,
+          title: "SQL injection vulnerability",
+          severity: "p1",
+          category: "security",
+        }),
+        makeFinding({
+          id: "x-001",
+          reviewer: "codex",
+          file: "src/auth.ts",
+          line: 42,
+          title: "Unsanitized SQL query input",
+          severity: "p1",
+          category: "security",
+          expected: "Parameterized queries",
+          observed: "String concatenation",
+          evidence: ["Line 42"],
+        }),
+      ];
+
+      const result = consolidate(findings, simpleDiff);
+      expect(result).toHaveLength(1);
+      expect(result[0].expected).toBe("Parameterized queries");
+      expect(result[0].observed).toBe("String concatenation");
+      expect(result[0].reviewer).toBe("claude,codex");
+    });
+
+    it("two findings from same reviewer, same file, nearby lines are NOT fuzzy-merged (VAL-CON-005)", () => {
+      const findings: Finding[] = [
+        makeFinding({
+          id: "c-001",
+          reviewer: "claude",
+          file: "src/auth.ts",
+          line: 42,
+          title: "SQL injection vulnerability",
+          severity: "p1",
+          category: "security",
+        }),
+        makeFinding({
+          id: "c-002",
+          reviewer: "claude",
+          file: "src/auth.ts",
+          line: 43,
+          title: "Unsanitized SQL query input",
+          severity: "p1",
+          category: "security",
+        }),
+      ];
+
+      const result = consolidate(findings, simpleDiff);
+      expect(result).toHaveLength(2);
+      // Both findings should retain their original reviewer
+      expect(result.every((f) => f.reviewer === "claude")).toBe(true);
+    });
+
+    it("two findings from different reviewers, same file, same line, genuinely different issues are NOT merged (VAL-CON-006)", () => {
+      const findings: Finding[] = [
+        makeFinding({
+          id: "c-001",
+          reviewer: "claude",
+          file: "src/auth.ts",
+          line: 42,
+          title: "SQL injection vulnerability",
+          severity: "p1",
+          category: "security",
+        }),
+        makeFinding({
+          id: "x-001",
+          reviewer: "codex",
+          file: "src/auth.ts",
+          line: 42,
+          title: "Missing error handling for null user",
+          severity: "p1",
+          category: "error-handling",
+        }),
+      ];
+
+      const result = consolidate(findings, simpleDiff);
+      expect(result).toHaveLength(2);
+    });
+
+    it("after A+B merge, C with overlapping reviewer is NOT merged into the result (reviewer-set dedup)", () => {
+      // A (claude, line=10) and B (codex, line=10) should merge → 'claude,codex'
+      // C (claude, line=11) must NOT merge with the result because 'claude' is already in the merged set
+      const findings: Finding[] = [
+        makeFinding({
+          id: "a-001",
+          reviewer: "claude",
+          file: "src/auth.ts",
+          line: 10,
+          title: "SQL injection vulnerability",
+          severity: "p1",
+          category: "security",
+        }),
+        makeFinding({
+          id: "b-001",
+          reviewer: "codex",
+          file: "src/auth.ts",
+          line: 10,
+          title: "Unsanitized SQL query input",
+          severity: "p1",
+          category: "security",
+        }),
+        makeFinding({
+          id: "c-001",
+          reviewer: "claude",
+          file: "src/auth.ts",
+          line: 11,
+          title: "SQL injection in query builder",
+          severity: "p1",
+          category: "security",
+        }),
+      ];
+
+      const result = consolidate(findings, simpleDiff);
+      // A+B merge into one, C stays separate → 2 findings
+      expect(result).toHaveLength(2);
+      // One finding should be the merged A+B with comma-joined reviewers
+      const mergedFinding = result.find((f) => f.reviewer.includes(","));
+      expect(mergedFinding).toBeDefined();
+      expect(mergedFinding!.reviewer).toBe("claude,codex");
+      // The other finding should be C with its original reviewer
+      const separateFinding = result.find((f) => !f.reviewer.includes(","));
+      expect(separateFinding).toBeDefined();
+      expect(separateFinding!.reviewer).toBe("claude");
+      expect(separateFinding!.id).toBe("c-001");
+    });
+  });
 });

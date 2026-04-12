@@ -2,6 +2,7 @@ import type { Finding, FindingComparisonConfig } from "./types";
 import { spawnWithStreaming } from "./process";
 import { extractJson } from "./json-utils";
 import { log } from "./log";
+import { isFuzzyMatch } from "./fuzzy-match";
 
 export interface ComparisonResult {
   newFindings: Finding[];
@@ -134,7 +135,7 @@ function compareFindingsHeuristic(
     }
   }
 
-  const newFindings: Finding[] = [];
+  const exactNewFindings: Finding[] = [];
   const persistingFindings: Finding[] = [];
 
   for (const current of currentFindings) {
@@ -146,16 +147,36 @@ function compareFindingsHeuristic(
       const previous = candidates.shift()!;
       persistingFindings.push({ ...current, id: previous.id });
     } else {
-      // New: not found in previous round
+      // Not matched by exact key — candidate for fuzzy matching
+      exactNewFindings.push(current);
+    }
+  }
+
+  // Collect unconsumed previous findings for fuzzy matching
+  const unmatchedPrevious: Finding[] = [];
+  for (const remaining of previousByKey.values()) {
+    unmatchedPrevious.push(...remaining);
+  }
+
+  // Second pass: fuzzy match unmatched current against unmatched previous
+  const newFindings: Finding[] = [];
+  for (const current of exactNewFindings) {
+    let matched = false;
+    for (let i = 0; i < unmatchedPrevious.length; i++) {
+      if (isFuzzyMatch(current, unmatchedPrevious[i])) {
+        persistingFindings.push({ ...current, id: unmatchedPrevious[i].id });
+        unmatchedPrevious.splice(i, 1);
+        matched = true;
+        break;
+      }
+    }
+    if (!matched) {
       newFindings.push(current);
     }
   }
 
-  // Resolved: any unconsumed previous findings
-  const resolvedFindings: Finding[] = [];
-  for (const remaining of previousByKey.values()) {
-    resolvedFindings.push(...remaining);
-  }
+  // Resolved: any remaining unmatched previous findings
+  const resolvedFindings: Finding[] = [...unmatchedPrevious];
 
   // Sort persisting findings by their original ID for stable ordering
   persistingFindings.sort((a, b) => a.id.localeCompare(b.id));

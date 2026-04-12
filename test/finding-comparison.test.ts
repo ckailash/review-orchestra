@@ -228,6 +228,97 @@ describe("finding comparison", () => {
     });
   });
 
+  describe("heuristic fuzzy fallback", () => {
+    it("matches persisting finding when title changed but same file + nearby line + token overlap", async () => {
+      const previous = [
+        makeFinding({
+          id: "r1-f-001",
+          file: "src/auth.ts",
+          line: 42,
+          title: "SQL injection vulnerability in query",
+          category: "security",
+        }),
+      ];
+      const current = [
+        makeFinding({
+          file: "src/auth.ts",
+          line: 44,
+          title: "Unsanitized SQL injection in query builder",
+          category: "security",
+        }),
+      ];
+
+      const result = await compareFindings(current, previous);
+
+      expect(result.persistingFindings).toHaveLength(1);
+      expect(result.persistingFindings[0].id).toBe("r1-f-001");
+      expect(result.newFindings).toHaveLength(0);
+      expect(result.resolvedFindings).toHaveLength(0);
+    });
+
+    it("does NOT match findings in different files even with similar titles", async () => {
+      const previous = [
+        makeFinding({
+          id: "r1-f-001",
+          file: "src/auth.ts",
+          line: 42,
+          title: "SQL injection vulnerability in query",
+          category: "security",
+        }),
+      ];
+      const current = [
+        makeFinding({
+          file: "src/other.ts",
+          line: 42,
+          title: "SQL injection vulnerability in query",
+          category: "security",
+        }),
+      ];
+
+      const result = await compareFindings(current, previous);
+
+      expect(result.newFindings).toHaveLength(1);
+      expect(result.persistingFindings).toHaveLength(0);
+      expect(result.resolvedFindings).toHaveLength(1);
+      expect(result.resolvedFindings[0].id).toBe("r1-f-001");
+    });
+
+    it("correctly identifies resolved findings when no fuzzy match found", async () => {
+      const previous = [
+        makeFinding({
+          id: "r1-f-001",
+          file: "src/auth.ts",
+          line: 42,
+          title: "SQL injection vulnerability",
+          category: "security",
+        }),
+        makeFinding({
+          id: "r1-f-002",
+          file: "src/utils.ts",
+          line: 10,
+          title: "Memory leak in cache handler",
+          category: "performance",
+        }),
+      ];
+      const current = [
+        makeFinding({
+          file: "src/new-file.ts",
+          line: 100,
+          title: "Completely different issue",
+          category: "logic",
+        }),
+      ];
+
+      const result = await compareFindings(current, previous);
+
+      expect(result.newFindings).toHaveLength(1);
+      expect(result.newFindings[0].title).toBe("Completely different issue");
+      expect(result.persistingFindings).toHaveLength(0);
+      expect(result.resolvedFindings).toHaveLength(2);
+      expect(result.resolvedFindings.map(f => f.id).sort()).toEqual(["r1-f-001", "r1-f-002"]);
+    });
+  });
+
   describe("assignFindingIds", () => {
     it("assigns round-scoped IDs to new findings in rN-f-NNN format", async () => {
       const newFindings = [
