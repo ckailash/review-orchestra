@@ -2,6 +2,7 @@ import { readdirSync, readFileSync, writeFileSync, mkdirSync, cpSync, rmSync, mk
 import { dirname, join } from "path";
 import { tmpdir } from "os";
 import { fileURLToPath } from "url";
+import { execFileSync } from "child_process";
 import { judge, type GoldenFixture, type JudgeResult } from "./judge";
 import { loadConfig } from "../src/config";
 import { Orchestrator } from "../src/orchestrator";
@@ -37,13 +38,21 @@ async function runFixture(
 
   const config = loadConfig({ thresholds: { stopAt: "p3" } });
 
+  // Init a git repo in the temp dir so orchestrator and reviewers work
+  try {
+    execFileSync("git", ["init"], { cwd: tempDir, stdio: "pipe" });
+    execFileSync("git", ["add", "."], { cwd: tempDir, stdio: "pipe" });
+    execFileSync("git", ["-c", "user.name=eval", "-c", "user.email=eval@test", "commit", "-m", "init"], { cwd: tempDir, stdio: "pipe" });
+  } catch (err) {
+    throw new Error(`Failed to initialize git repo for fixture ${fixtureName}: ${err}`);
+  }
+
   // Build a synthetic scope from the fixture's files
-  const fixtureFiles = listFiles(join(tempDir, "src"));
+  const fixtureFiles = listFiles(tempDir);
   const relativeFiles = fixtureFiles.map((f) => f.replace(tempDir + "/", ""));
 
   // Generate a diff covering all fixture files so the consolidator can
   // correctly tag findings as new (not pre-existing).
-  const { execFileSync } = await import("child_process");
   const fixtureDiffs = relativeFiles.map((f) => {
     try {
       return execFileSync("git", ["diff", "--no-index", "/dev/null", f], {
@@ -112,9 +121,12 @@ async function runFixture(
   }
 }
 
+const EXCLUDED_DIRS = new Set([".git", ".review-orchestra"]);
+
 function listFiles(dir: string): string[] {
   const files: string[] = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (EXCLUDED_DIRS.has(entry.name)) continue;
     const full = join(dir, entry.name);
     if (entry.isDirectory()) {
       files.push(...listFiles(full));

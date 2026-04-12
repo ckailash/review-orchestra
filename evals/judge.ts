@@ -46,7 +46,7 @@ export async function judge(
   }
 }
 
-function buildJudgePrompt(
+export function buildJudgePrompt(
   actual: Finding[],
   golden: GoldenFixture
 ): string {
@@ -74,6 +74,24 @@ ${JSON.stringify(
 For each expected finding, determine if any actual finding matches it (same underlying issue, not necessarily same wording).
 For each actual finding, determine if it's a real issue or a hallucination.
 
+## Severity Matching Criteria
+For each match, evaluate severity_match as follows:
+- Compare the golden finding's "expected_impact" to the actual finding's "impact" field.
+- Compare the golden finding's "expected_confidence" to the actual finding's "confidence" field.
+- severity_match is true ONLY when BOTH axes match (expected_impact == impact AND expected_confidence == confidence).
+
+## Matching Examples
+
+### Example: Match (same underlying issue, different wording)
+Golden: "SQL injection via unsanitized user input in query builder"
+Actual: "User-controlled string concatenated into SQL query without parameterization"
+→ These describe the same vulnerability (SQL injection from unsanitized input). This IS a match.
+
+### Example: Non-match (similar-sounding but different underlying issue)
+Golden: "Race condition in concurrent file writes allows data corruption"
+Actual: "File descriptor leak when write errors are not caught"
+→ Both involve file operations, but one is a race condition and the other is a resource leak. This is NOT a match.
+
 Output JSON:
 {
   "matches": [
@@ -84,7 +102,7 @@ Output JSON:
 }`;
 }
 
-function parseJudgeOutput(
+export function parseJudgeOutput(
   fixture: string,
   raw: string,
   actual: Finding[],
@@ -97,14 +115,17 @@ function parseJudgeOutput(
     const parsed = unwrapCliEnvelope(extracted) as Record<string, unknown>;
     if (!parsed || typeof parsed !== "object" || !("matches" in parsed)) return fallbackJudge(fixture, actual, golden);
     const rawMatches = (parsed.matches ?? []) as { golden_index: number; actual_id: string; severity_match: boolean }[];
-    const hallucinatedIds = new Set(parsed.hallucinated_ids ?? []);
-    const missedIndices = new Set(parsed.missed_golden_indices ?? []);
+
+    // Filter out matches with out-of-range golden_index
+    const validRawMatches = rawMatches.filter(
+      (m) => m.golden_index >= 0 && m.golden_index < golden.expected_findings.length
+    );
 
     // Deduplicate matches by both golden_index and actual_id
     const seenGolden = new Set<number>();
     const seenActual = new Set<string>();
-    const matches: typeof rawMatches = [];
-    for (const m of rawMatches) {
+    const matches: typeof validRawMatches = [];
+    for (const m of validRawMatches) {
       if (!seenGolden.has(m.golden_index) && !seenActual.has(m.actual_id)) {
         seenGolden.add(m.golden_index);
         seenActual.add(m.actual_id);
@@ -112,14 +133,39 @@ function parseJudgeOutput(
       }
     }
 
-    const matched = matches
+    const actualById = new Map(actual.map((f) => [f.id, f]));
+
+    // Filter matches to only those whose actual_id resolves to an existing finding
+    const resolvedMatches = matches.filter(
+      (m: { golden_index: number; actual_id: string; severity_match: boolean }) => actualById.has(m.actual_id)
+    );
+
+    const matched = resolvedMatches
       .map(
         (m: { golden_index: number; actual_id: string; severity_match: boolean }) => ({
           golden: golden.expected_findings[m.golden_index],
-          actual: actual.find((f) => f.id === m.actual_id),
+          actual: actualById.get(m.actual_id)!,
         })
-      )
-      .filter((m): m is { golden: (typeof golden.expected_findings)[number]; actual: Finding } => m.actual !== undefined);
+      );
+
+    // Compute matched golden indices and actual IDs from resolved matches
+    const matchedGoldenIndices = new Set(
+      resolvedMatches.map((m) => m.golden_index)
+    );
+    const matchedActualIds = new Set(
+      resolvedMatches.map((m) => m.actual_id)
+    );
+
+    // Compute missed: golden indices not present in valid matches
+    const missed: GoldenFinding[] = [];
+    for (let i = 0; i < golden.expected_findings.length; i++) {
+      if (!matchedGoldenIndices.has(i)) {
+        missed.push(golden.expected_findings[i]);
+      }
+    }
+
+    // Compute hallucinated: actual IDs not present in valid matches
+    const hallucinated = actual.filter((f) => !matchedActualIds.has(f.id));
 
     const totalExpected = golden.expected_findings.length;
     const totalActual = actual.length;
@@ -141,17 +187,15 @@ function parseJudgeOutput(
       severity_accuracy:
         truePositives > 0 ? severityCorrect / truePositives : 0,
       matched,
-      missed: [...missedIndices].map(
-        (i) => golden.expected_findings[i as number]
-      ),
-      hallucinated: actual.filter((f) => hallucinatedIds.has(f.id)),
+      missed,
+      hallucinated,
     };
   } catch {
     return fallbackJudge(fixture, actual, golden);
   }
 }
 
-function fallbackJudge(
+export function fallbackJudge(
   fixture: string,
   actual: Finding[],
   golden: GoldenFixture
@@ -167,7 +211,7 @@ function fallbackJudge(
         !usedActual.has(a.id) &&
         keywords.some(
           (k) =>
-            k.length > 4 &&
+            k.length > 5 &&
             (a.title.toLowerCase().includes(k) ||
               a.description.toLowerCase().includes(k))
         )

@@ -32,6 +32,11 @@
       "expected_confidence": "likely"
     },
     {
+      "description": "Broken authentication in users.ts verifyPassword(): compares password_hash (a hashed value) directly to the raw plaintext password using ==, which always fails because a hash will never equal the original plaintext — no user can ever log in",
+      "expected_impact": "critical",
+      "expected_confidence": "verified"
+    },
+    {
       "description": "Path traversal in uploads.ts saveUpload(): user-controlled filename passed to path.join without validating the resolved path stays within the upload directory",
       "expected_impact": "critical",
       "expected_confidence": "verified"
