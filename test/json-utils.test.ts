@@ -51,6 +51,18 @@ describe("extractJson", () => {
   it("returns null for malformed JSON", () => {
     expect(extractJson("{not: valid}")).toBeNull();
   });
+
+  it("prefers object over array when both { and [ are present", () => {
+    const input = 'Some text [1, 2, 3] and {"key": "value"}';
+    const result = extractJson(input);
+    expect(result).toEqual({ key: "value" });
+  });
+
+  it("finds object even when [ appears before {", () => {
+    const input = '[1, 2, 3] {"findings": []}';
+    const result = extractJson(input);
+    expect(result).toEqual({ findings: [] });
+  });
 });
 
 describe("unwrapCliEnvelope", () => {

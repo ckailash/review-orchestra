@@ -296,7 +296,11 @@ export class Orchestrator {
             findingsCount: findings.length,
             elapsedMs,
           };
-          writeProgress(this.stateDir, progress);
+          try {
+            writeProgress(this.stateDir, progress);
+          } catch (err) {
+            log(`warning: failed to write progress for ${reviewer.name}: ${err instanceof Error ? err.message : String(err)}`);
+          }
 
           // Save raw reviewer output for debugging parse failures
           try {
@@ -331,7 +335,11 @@ export class Orchestrator {
             findingsCount: null,
             elapsedMs,
           };
-          writeProgress(this.stateDir, progress);
+          try {
+            writeProgress(this.stateDir, progress);
+          } catch (progressErr) {
+            log(`warning: failed to write progress for ${reviewer.name}: ${progressErr instanceof Error ? progressErr.message : String(progressErr)}`);
+          }
 
           throw err;
         }

@@ -1,6 +1,6 @@
 # Learnings & Visibility — Feature Plan
 
-**Status:** Planned (not started)
+**Status:** Partially complete (steps 1-5 done; distillation command and visualizer deferred)
 **Priority:** Pre-release — critical for user trust
 **Written:** 2026-03-14
 **Updated:** 2026-04-07 — uplifted after consolidated review (Claude + Codex): removed auto-mode fix infrastructure, aligned findings.jsonl with finding-quality and supervised-flow plans, fixed storage scope, reframed visibility for supervised mode, added Feature 3 deferral

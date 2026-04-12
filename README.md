@@ -185,6 +185,17 @@ Configuration lives in `config/default.json`:
 |---|---|---|
 | `stopAt` | `p1` | Suggests which findings to fix. `p0` = critical only, `p1` = critical + functional, `p2` = + quality, `p3` = fix everything. The user controls the loop and decides when to stop. |
 
+### Finding comparison
+
+Cross-round finding comparison uses LLM-based semantic matching by default (via Claude Haiku). This handles renamed files, shifted line numbers, and reworded descriptions across review rounds. On LLM failure or timeout, it falls back to heuristic matching (`file + title.toLowerCase()`). Configure via `findingComparison` in `config/default.json`:
+
+| Setting | Default | Description |
+|---|---|---|
+| `method` | `"llm"` | Comparison method: `"llm"` for semantic matching, `"heuristic"` for file+title matching |
+| `model` | `"claude-haiku-4-5"` | Model to use for LLM comparison |
+| `timeoutMs` | `60000` | Timeout for LLM comparison call (ms) |
+| `fallback` | `"heuristic"` | Fallback method when LLM fails |
+
 ### Severity model
 
 Findings are classified on two independent axes, then a P-level is derived:
@@ -282,7 +293,7 @@ The consolidator normalizes different output formats into the standard findings 
 | Consolidation | CLI (deterministic code) | Dedup, P-level, pre-existing tagging. No LLM needed. |
 | Session persistence | Session-based state with worktree hashes | Supports multi-invocation supervised loop. Round-scoped finding IDs prevent collisions. |
 | Finding IDs | Round-scoped (`r1-f-001`) | Prevents collisions across review rounds. User can reference specific findings. |
-| Finding comparison | File + title matching | Tags findings as new/persisting; resolved findings in separate array. Best-effort heuristic. |
+| Finding comparison | LLM-based semantic matching (haiku) with heuristic fallback | Handles renamed files, shifted line numbers, reworded descriptions. Haiku is fast/cheap. Heuristic fallback ensures reliability. |
 | Arguments | Natural language | Idiomatic for Claude Code skills. No `--flags`. LLM parses intent. |
 | Severity | Two-axis (confidence × impact) → P0–P3 | Familiar P-levels as shorthand, nuanced classification underneath. |
 | Pre-existing | Tag and exclude from recommendations | Reported but don't block. User can override in supervised mode. |

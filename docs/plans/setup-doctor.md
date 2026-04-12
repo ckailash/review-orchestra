@@ -1,6 +1,6 @@
 # Setup + Doctor Commands — Feature Plan
 
-**Status:** Planned (not started)
+**Status:** Complete
 **Priority:** Phase C — parallelisable with supervised flow
 **Written:** 2026-03-30
 

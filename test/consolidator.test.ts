@@ -229,6 +229,23 @@ describe("consolidate", () => {
     });
   });
 
+  describe("line=0 handling", () => {
+    it("finding with line=0 is treated as NOT pre-existing regardless of diff hunks", () => {
+      // line=0 means unknown location — consolidator treats it as inDiff=true
+      const finding = makeFinding({
+        id: "c-001",
+        file: "src/auth.ts",
+        line: 0,
+        title: "Global issue with unknown line",
+      });
+
+      const result = consolidate([finding], simpleDiff);
+      expect(result).toHaveLength(1);
+      expect(result[0].pre_existing).toBe(false);
+      expect(result[0].line).toBe(0);
+    });
+  });
+
   describe("empty inputs", () => {
     it("returns empty array for no findings", () => {
       const result = consolidate([], simpleDiff);

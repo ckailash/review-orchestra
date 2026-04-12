@@ -152,10 +152,10 @@ export function checkBinary(name: string): CheckResult {
 }
 
 /**
- * Check binary auth by running `<binary> --version` with a 5-second timeout.
+ * Check binary health by running `<binary> --version` with a 5-second timeout.
  * Pass if exit 0. For claude: fail on error/timeout. For codex: warn on error/timeout.
  */
-export function checkAuth(binary: string): CheckResult {
+export function checkBinaryHealth(binary: string): CheckResult {
   const status: CheckStatus = binary === "codex" ? "warn" : "fail";
 
   try {
@@ -164,13 +164,13 @@ export function checkAuth(binary: string): CheckResult {
       stdio: "pipe",
     });
     return {
-      name: `${binary}-auth`,
+      name: `${binary}-health`,
       status: "pass",
       message: `${binary} --version succeeded`,
     };
   } catch {
     return {
-      name: `${binary}-auth`,
+      name: `${binary}-health`,
       status,
       message: `${binary} --version failed or timed out`,
       remediation: `Ensure ${binary} is properly installed and configured.`,

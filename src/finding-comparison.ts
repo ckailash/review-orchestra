@@ -1,5 +1,6 @@
 import type { Finding, FindingComparisonConfig } from "./types";
 import { spawnWithStreaming } from "./process";
+import { extractJson } from "./json-utils";
 import { log } from "./log";
 
 export interface ComparisonResult {
@@ -37,13 +38,13 @@ export function summarizeFinding(finding: Finding, label: string): string {
   const line1 = `[${label}] file:${finding.file} line:${finding.line} cat:${finding.category} sev:${finding.severity}`;
 
   let descText = finding.description;
-  if (descText.length < 20) {
+  if (descText.length < 20 && finding.title.length >= 20) {
     descText += ` (title: ${finding.title})`;
   }
   descText = truncate(descText);
 
   let suggText = finding.suggestion;
-  if (suggText.length < 20) {
+  if (suggText.length < 20 && finding.title.length >= 20) {
     suggText += ` (title: ${finding.title})`;
   }
   suggText = truncate(suggText);
@@ -121,37 +122,43 @@ function compareFindingsHeuristic(
   currentFindings: Finding[],
   previousFindings: Finding[],
 ): ComparisonResult {
-  // Index previous findings by comparison key
-  const previousByKey = new Map<string, Finding>();
+  // Index previous findings by comparison key (supports duplicates)
+  const previousByKey = new Map<string, Finding[]>();
   for (const f of previousFindings) {
-    previousByKey.set(comparisonKey(f), f);
+    const key = comparisonKey(f);
+    const existing = previousByKey.get(key);
+    if (existing) {
+      existing.push(f);
+    } else {
+      previousByKey.set(key, [f]);
+    }
   }
 
   const newFindings: Finding[] = [];
   const persistingFindings: Finding[] = [];
-  const matchedPreviousKeys = new Set<string>();
 
   for (const current of currentFindings) {
     const key = comparisonKey(current);
-    const previous = previousByKey.get(key);
+    const candidates = previousByKey.get(key);
 
-    if (previous) {
-      // Persisting: found in both rounds — keep previous ID
+    if (candidates && candidates.length > 0) {
+      // Persisting: consume first available match (FIFO)
+      const previous = candidates.shift()!;
       persistingFindings.push({ ...current, id: previous.id });
-      matchedPreviousKeys.add(key);
     } else {
       // New: not found in previous round
       newFindings.push(current);
     }
   }
 
-  // Resolved: in previous but not matched by any current finding
+  // Resolved: any unconsumed previous findings
   const resolvedFindings: Finding[] = [];
-  for (const prev of previousFindings) {
-    if (!matchedPreviousKeys.has(comparisonKey(prev))) {
-      resolvedFindings.push(prev);
-    }
+  for (const remaining of previousByKey.values()) {
+    resolvedFindings.push(...remaining);
   }
+
+  // Sort persisting findings by their original ID for stable ordering
+  persistingFindings.sort((a, b) => a.id.localeCompare(b.id));
 
   return { newFindings, persistingFindings, resolvedFindings };
 }
@@ -188,22 +195,13 @@ async function compareFindingsViaLLM(
     input: prompt,
     label: "finding-comparison",
     inactivityTimeout: config.timeoutMs,
-    catastrophicTimeout: 600_000,
+    catastrophicTimeout: config.timeoutMs * 2,
   });
 
   // Extract JSON from output (may be surrounded by text)
-  const firstBrace = output.indexOf("{");
-  const lastBrace = output.lastIndexOf("}");
-  if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
-    throw new Error("No JSON object found in LLM response");
-  }
-  const jsonStr = output.slice(firstBrace, lastBrace + 1);
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(jsonStr);
-  } catch {
-    throw new Error("Failed to parse JSON from LLM response");
+  const parsed = extractJson(output);
+  if (parsed === null) {
+    throw new Error("No valid JSON found in LLM response");
   }
 
   // Validate structure
@@ -264,12 +262,6 @@ async function compareFindingsViaLLM(
       `Matches count (${matches.length}) does not equal current findings count (${currentFindings.length})`,
     );
   }
-  for (const curId of validCurrentIds) {
-    if (!seenCurrentIds.has(curId)) {
-      throw new Error(`Missing current ID in matches: ${curId}`);
-    }
-  }
-
   // Convert validated matches to ComparisonResult
   const typedMatches = matches as Array<{
     current: string;
@@ -294,6 +286,9 @@ async function compareFindingsViaLLM(
       matchedPreviousIds.add(match.previous);
     }
   }
+
+  // Sort persisting findings by their original ID for stable ordering
+  persistingFindings.sort((a, b) => a.id.localeCompare(b.id));
 
   // Unmatched previous findings are resolved
   const resolvedFindings: Finding[] = previousFindings.filter(
@@ -322,6 +317,15 @@ export async function compareFindings(
       newFindings: [...currentFindings],
       persistingFindings: [],
       resolvedFindings: [],
+    };
+  }
+
+  // Short-circuit: no current findings means all previous are resolved
+  if (currentFindings.length === 0) {
+    return {
+      newFindings: [],
+      persistingFindings: [],
+      resolvedFindings: [...previousFindings],
     };
   }
 

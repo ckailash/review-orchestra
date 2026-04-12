@@ -205,4 +205,21 @@ describe("parseArgs", () => {
     expect(result.models).toEqual({ claude: "opus" });
     expect(result.dryRun).toBe(true);
   });
+
+  it("handles multiple skip commands", () => {
+    const result = parseArgs("skip codex skip gemini");
+    expect(result.disabledReviewers).toContain("codex");
+    expect(result.disabledReviewers).toContain("gemini");
+    expect(result.disabledReviewers).toHaveLength(2);
+  });
+
+  it("detects triple-dot range as commit ref", () => {
+    const result = parseArgs("abc123...def456");
+    expect(result.commitRef).toBe("abc123...def456");
+  });
+
+  it("detects bare HEAD as commit ref", () => {
+    const result = parseArgs("HEAD");
+    expect(result.commitRef).toBe("HEAD");
+  });
 });

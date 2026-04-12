@@ -55,11 +55,16 @@ export function computeWorktreeHash(cwd: string = process.cwd()): string {
   hash.update(diff);
 
   // 3. Untracked files — list with null-byte separation for safety
-  const untrackedRaw = execFileSync(
-    "git",
-    ["ls-files", "-z", "--others", "--exclude-standard"],
-    { cwd, encoding: "utf-8", maxBuffer: 10 * 1024 * 1024 },
-  );
+  let untrackedRaw = "";
+  try {
+    untrackedRaw = execFileSync(
+      "git",
+      ["ls-files", "-z", "--others", "--exclude-standard"],
+      { cwd, encoding: "utf-8", maxBuffer: 10 * 1024 * 1024 },
+    );
+  } catch {
+    // git ls-files failed — skip untracked files
+  }
 
   if (untrackedRaw.length > 0) {
     // Split on null bytes, filter empty trailing entry

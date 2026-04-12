@@ -2,6 +2,7 @@ import { execFileSync } from "child_process";
 import { normalize } from "path";
 import type { DiffScope } from "./types";
 
+// Hardcoded limit; could be made configurable via Config if needed
 const MAX_DIFF_BYTES = 512 * 1024; // 512KB
 
 function git(...args: string[]): string {
@@ -15,6 +16,7 @@ function git(...args: string[]): string {
 // execFileSync throws on non-zero exit, so we capture the output from the error object.
 function diffNewFile(file: string): string {
   try {
+    // /dev/null is handled by git internally on all platforms (including Windows via Git for Windows)
     return execFileSync("git", ["diff", "--no-index", "/dev/null", file], {
       encoding: "utf-8",
       maxBuffer: MAX_DIFF_BYTES * 2,
@@ -114,10 +116,10 @@ function detectDefaultBranch(): string | null {
   return null;
 }
 
-export async function detectScope(
+export function detectScope(
   filterPaths: string[] = [],
   commitRef?: string
-): Promise<DiffScope> {
+): DiffScope {
   const safePaths = validatePaths(filterPaths);
 
   // Explicit commit ref — highest priority

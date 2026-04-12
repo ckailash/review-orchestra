@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { CheckResult } from "../src/checks";
 
 // --- Mocks for checks.ts ---
@@ -10,7 +10,7 @@ const mockCheckPackageRoot = vi.fn<(packageRoot: string) => CheckResult>();
 const mockCheckGit = vi.fn<() => CheckResult>();
 const mockCheckCliOnPath = vi.fn<() => CheckResult>();
 const mockCheckBinary = vi.fn<(name: string) => CheckResult>();
-const mockCheckAuth = vi.fn<(binary: string) => CheckResult>();
+const mockCheckBinaryHealth = vi.fn<(binary: string) => CheckResult>();
 const mockCheckClaudeHome = vi.fn<() => CheckResult>();
 const mockCheckSkillSymlink = vi.fn<(packageRoot: string) => CheckResult>();
 const mockCheckSchemaFile = vi.fn<(packageRoot: string) => CheckResult>();
@@ -22,7 +22,7 @@ vi.mock("../src/checks", () => ({
   checkGit: (...args: unknown[]) => mockCheckGit(...(args as [])),
   checkCliOnPath: (...args: unknown[]) => mockCheckCliOnPath(...(args as [])),
   checkBinary: (...args: unknown[]) => mockCheckBinary(...(args as [string])),
-  checkAuth: (...args: unknown[]) => mockCheckAuth(...(args as [string])),
+  checkBinaryHealth: (...args: unknown[]) => mockCheckBinaryHealth(...(args as [string])),
   checkClaudeHome: (...args: unknown[]) => mockCheckClaudeHome(...(args as [])),
   checkSkillSymlink: (...args: unknown[]) => mockCheckSkillSymlink(...(args as [string])),
   checkSchemaFile: (...args: unknown[]) => mockCheckSchemaFile(...(args as [string])),
@@ -49,8 +49,8 @@ vi.mock("fs", () => ({
   realpathSync: (...args: unknown[]) => mockRealpathSyncFs(...args),
 }));
 
-// Mock process.exit to prevent test process from actually exiting
-const mockExit = vi.spyOn(process, "exit").mockImplementation((() => {}) as never);
+// Mock process.exit — created in beforeEach, restored in afterEach
+let mockExit: ReturnType<typeof vi.spyOn>;
 
 // Capture stderr output
 let stderrOutput: string;
@@ -67,7 +67,7 @@ beforeEach(() => {
   mockCheckGit.mockReset();
   mockCheckCliOnPath.mockReset();
   mockCheckBinary.mockReset();
-  mockCheckAuth.mockReset();
+  mockCheckBinaryHealth.mockReset();
   mockCheckClaudeHome.mockReset();
   mockCheckSkillSymlink.mockReset();
   mockCheckSchemaFile.mockReset();
@@ -79,9 +79,13 @@ beforeEach(() => {
   mockExistsSyncFs.mockReset();
   mockReadFileSyncFs.mockReset();
   mockRealpathSyncFs.mockReset();
-  mockExit.mockClear();
+  mockExit = vi.spyOn(process, "exit").mockImplementation((() => {}) as never);
   mockStderr.mockClear();
   stderrOutput = "";
+});
+
+afterEach(() => {
+  mockExit.mockRestore();
 });
 
 import { runSetup } from "../src/setup";
@@ -115,8 +119,8 @@ function allChecksPass(): void {
     status: "pass",
     message: `${name} found on PATH`,
   }));
-  mockCheckAuth.mockImplementation((binary: string) => ({
-    name: `${binary}-auth`,
+  mockCheckBinaryHealth.mockImplementation((binary: string) => ({
+    name: `${binary}-health`,
     status: "pass",
     message: `${binary} --version succeeded`,
   }));
@@ -512,10 +516,10 @@ describe("runSetup", () => {
       expect(mockExit).toHaveBeenCalledWith(1);
     });
 
-    it("reports claude-auth failure with remediation hint", async () => {
+    it("reports claude-health failure with remediation hint", async () => {
       allChecksPass();
-      mockCheckAuth.mockImplementation((binary: string) => ({
-        name: `${binary}-auth`,
+      mockCheckBinaryHealth.mockImplementation((binary: string) => ({
+        name: `${binary}-health`,
         status: binary === "claude" ? "fail" : "pass",
         message: binary === "claude" ? "claude --version failed" : `${binary} ok`,
         remediation: binary === "claude" ? "Ensure claude is properly configured" : undefined,
@@ -542,10 +546,10 @@ describe("runSetup", () => {
       expect(mockExit).toHaveBeenCalledWith(0);
     });
 
-    it("reports codex-auth warning with hint", async () => {
+    it("reports codex-health warning with hint", async () => {
       allChecksPass();
-      mockCheckAuth.mockImplementation((binary: string) => ({
-        name: `${binary}-auth`,
+      mockCheckBinaryHealth.mockImplementation((binary: string) => ({
+        name: `${binary}-health`,
         status: binary === "codex" ? "warn" : "pass",
         message: binary === "codex" ? "codex --version failed" : `${binary} ok`,
         remediation: binary === "codex" ? "Ensure codex is configured" : undefined,
@@ -672,8 +676,8 @@ describe("runSetup", () => {
       expect(mockCheckCliOnPath).toHaveBeenCalled();
       expect(mockCheckBinary).toHaveBeenCalledWith("claude");
       expect(mockCheckBinary).toHaveBeenCalledWith("codex");
-      expect(mockCheckAuth).toHaveBeenCalledWith("claude");
-      expect(mockCheckAuth).toHaveBeenCalledWith("codex");
+      expect(mockCheckBinaryHealth).toHaveBeenCalledWith("claude");
+      expect(mockCheckBinaryHealth).toHaveBeenCalledWith("codex");
       expect(mockCheckClaudeHome).toHaveBeenCalled();
       expect(mockCheckSkillSymlink).toHaveBeenCalledWith("/some/root");
       expect(mockCheckSchemaFile).toHaveBeenCalledWith("/some/root");
@@ -744,8 +748,8 @@ describe("runSetup", () => {
       expect(mockCheckCliOnPath).toHaveBeenCalled();
       expect(mockCheckBinary).toHaveBeenCalledWith("claude");
       expect(mockCheckBinary).toHaveBeenCalledWith("codex");
-      expect(mockCheckAuth).toHaveBeenCalledWith("claude");
-      expect(mockCheckAuth).toHaveBeenCalledWith("codex");
+      expect(mockCheckBinaryHealth).toHaveBeenCalledWith("claude");
+      expect(mockCheckBinaryHealth).toHaveBeenCalledWith("codex");
       expect(mockCheckClaudeHome).toHaveBeenCalled();
       expect(mockCheckSkillSymlink).toHaveBeenCalledWith("/some/root");
       expect(mockCheckSchemaFile).toHaveBeenCalledWith("/some/root");

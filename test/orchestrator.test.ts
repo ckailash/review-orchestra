@@ -361,6 +361,97 @@ describe("Orchestrator", () => {
     expect(result.sessionId).toBe("20260315-143022");
   });
 
+  it("resumes from consolidation when recovering from crash during consolidation phase", async () => {
+    const { createReviewers } = await import("../src/reviewers/index");
+
+    const findingA = makeFinding({ id: "saved-001", title: "Finding from reviewer-a", reviewer: "reviewer-a" });
+    const findingB = makeFinding({ id: "saved-002", title: "Finding from reviewer-b", reviewer: "reviewer-b" });
+    const reviewFn = vi.fn();
+
+    vi.mocked(createReviewers).mockReturnValue([
+      {
+        name: "reviewer-a",
+        review: reviewFn,
+      },
+      {
+        name: "reviewer-b",
+        review: reviewFn,
+      },
+    ]);
+
+    // Pre-seed session.json with a round in the "consolidating" phase
+    // This simulates a crash after all reviewers completed but during consolidation
+    mkdirSync(TEST_STATE_DIR, { recursive: true });
+    const crashedState: SessionState = {
+      sessionId: "20260315-150000",
+      status: "active",
+      currentRound: 1,
+      rounds: [
+        {
+          number: 1,
+          phase: "consolidating",
+          reviews: {
+            "reviewer-a": {
+              findings: [findingA],
+              metadata: {
+                reviewer: "reviewer-a",
+                round: 1,
+                timestamp: "2026-03-15T15:00:00Z",
+                files_reviewed: 1,
+                diff_scope: "branch feat/auth vs main",
+              },
+            },
+            "reviewer-b": {
+              findings: [findingB],
+              metadata: {
+                reviewer: "reviewer-b",
+                round: 1,
+                timestamp: "2026-03-15T15:00:01Z",
+                files_reviewed: 1,
+                diff_scope: "branch feat/auth vs main",
+              },
+            },
+          },
+          consolidated: [],
+          worktreeHash: "hash1",
+          startedAt: "2026-03-15T15:00:00Z",
+          completedAt: null,
+        },
+      ],
+      scope: mockScope,
+      worktreeHash: "hash1",
+      startedAt: "2026-03-15T15:00:00Z",
+      completedAt: null,
+    };
+    writeFileSync(
+      join(TEST_STATE_DIR, "session.json"),
+      JSON.stringify(crashedState, null, 2),
+    );
+
+    const callbacks: OrchestratorCallbacks = {
+      onRoundStart: vi.fn(),
+      onConsolidated: vi.fn(),
+      onComplete: vi.fn(),
+    };
+
+    const config = loadConfig({ thresholds: { stopAt: "p1" } });
+    const orchestrator = new Orchestrator(config, TEST_STATE_DIR, callbacks);
+    const result = await orchestrator.run(mockScope);
+
+    // No reviewers should have been called — they already completed before crash
+    expect(reviewFn).not.toHaveBeenCalled();
+
+    // Consolidation should have run with the saved findings
+    expect(callbacks.onConsolidated).toHaveBeenCalled();
+    expect(callbacks.onComplete).toHaveBeenCalled();
+
+    // Result should contain findings from saved reviews (consolidated)
+    expect(result.findings.length).toBeGreaterThanOrEqual(1);
+    expect(result.reviewerErrors).toEqual([]);
+    expect(result.round).toBe(1);
+    expect(result.sessionId).toBe("20260315-150000");
+  });
+
   describe("findings-store integration", () => {
     it("calls appendFindings after finding comparison", async () => {
       const { createReviewers } = await import("../src/reviewers/index");
@@ -1008,6 +1099,117 @@ describe("Orchestrator", () => {
       expect(progress.reviewers["reviewer-b"].findingsCount).toBeNull();
 
       // After run completes, progress.json should be deleted
+      expect(existsSync(join(TEST_STATE_DIR, "progress.json"))).toBe(false);
+    });
+  });
+
+  describe("all-reviewers-fail (VAL-CROSS-004)", () => {
+    function readProgress(stateDir: string) {
+      const progressPath = join(stateDir, "progress.json");
+      if (!existsSync(progressPath)) return null;
+      return JSON.parse(readFileSync(progressPath, "utf-8"));
+    }
+
+    it("throws 'All reviewers failed' error, does not call appendFindings, and cleans up progress.json", async () => {
+      const { createReviewers } = await import("../src/reviewers/index");
+
+      // Mock ALL reviewers to reject
+      vi.mocked(createReviewers).mockReturnValue([
+        {
+          name: "reviewer-a",
+          review: vi.fn().mockRejectedValue(new Error("connection timeout")),
+        },
+        {
+          name: "reviewer-b",
+          review: vi.fn().mockRejectedValue(new Error("process exited with code 1")),
+        },
+      ]);
+
+      // Clear any previous appendFindings/backfillResolved calls
+      vi.mocked(appendFindings).mockClear();
+      vi.mocked(backfillResolved).mockClear();
+
+      const config = loadConfig({ thresholds: { stopAt: "p1" } });
+      const orchestrator = new Orchestrator(config, TEST_STATE_DIR);
+
+      // 1. The orchestrator throws "All reviewers failed" error
+      await expect(orchestrator.run(mockScope)).rejects.toThrow(
+        "All reviewers failed"
+      );
+
+      // 2. appendFindings is NOT called (we never reach finding comparison)
+      expect(appendFindings).not.toHaveBeenCalled();
+
+      // 3. backfillResolved is NOT called either
+      expect(backfillResolved).not.toHaveBeenCalled();
+
+      // 4. progress.json is cleaned up (deleted) in the error path
+      expect(existsSync(join(TEST_STATE_DIR, "progress.json"))).toBe(false);
+    });
+
+    it("shows all reviewers as error in progress.json before cleanup", async () => {
+      const { createReviewers } = await import("../src/reviewers/index");
+
+      let capturedProgress: unknown = null;
+
+      // Use a deferred so we can capture progress.json state between
+      // reviewer failures and the error-path cleanup
+      vi.mocked(createReviewers).mockReturnValue([
+        {
+          name: "reviewer-a",
+          review: vi.fn().mockRejectedValue(new Error("timeout")),
+        },
+        {
+          name: "reviewer-b",
+          review: vi.fn().mockImplementation(async () => {
+            // Wait a tick so reviewer-a's error status is written to progress.json
+            await new Promise((r) => setTimeout(r, 10));
+            capturedProgress = readProgress(TEST_STATE_DIR);
+            throw new Error("also failed");
+          }),
+        },
+      ]);
+
+      const config = loadConfig({ thresholds: { stopAt: "p1" } });
+      const orchestrator = new Orchestrator(config, TEST_STATE_DIR);
+
+      await expect(orchestrator.run(mockScope)).rejects.toThrow(
+        "All reviewers failed"
+      );
+
+      // During review (before cleanup), reviewer-a should have been marked as error
+      expect(capturedProgress).not.toBeNull();
+      const progress = capturedProgress as {
+        reviewers: Record<string, { status: string; findingsCount: number | null; elapsedMs: number | null }>;
+      };
+      expect(progress.reviewers["reviewer-a"].status).toBe("error");
+      expect(progress.reviewers["reviewer-a"].findingsCount).toBeNull();
+      expect(progress.reviewers["reviewer-a"].elapsedMs).toBeGreaterThanOrEqual(0);
+
+      // After the error propagates, progress.json is cleaned up
+      expect(existsSync(join(TEST_STATE_DIR, "progress.json"))).toBe(false);
+    });
+
+    it("propagates the error from the orchestrator", async () => {
+      const { createReviewers } = await import("../src/reviewers/index");
+
+      // Single reviewer that fails
+      vi.mocked(createReviewers).mockReturnValue([
+        {
+          name: "sole-reviewer",
+          review: vi.fn().mockRejectedValue(new Error("API key expired")),
+        },
+      ]);
+
+      const config = loadConfig({ thresholds: { stopAt: "p1" } });
+      const orchestrator = new Orchestrator(config, TEST_STATE_DIR);
+
+      await expect(orchestrator.run(mockScope)).rejects.toThrow(
+        "All reviewers failed — cannot determine review status"
+      );
+
+      // Verify cleanup
+      expect(appendFindings).not.toHaveBeenCalled();
       expect(existsSync(join(TEST_STATE_DIR, "progress.json"))).toBe(false);
     });
   });

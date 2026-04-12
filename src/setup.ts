@@ -4,7 +4,7 @@ import {
   checkGit,
   checkCliOnPath,
   checkBinary,
-  checkAuth,
+  checkBinaryHealth,
   checkClaudeHome,
   checkSkillSymlink,
   checkSchemaFile,
@@ -110,12 +110,12 @@ function buildChecklist(packageRoot: string): CheckEntry[] {
       run: () => checkBinary("codex"),
     },
     {
-      label: "claude auth",
-      run: () => checkAuth("claude"),
+      label: "claude health",
+      run: () => checkBinaryHealth("claude"),
     },
     {
-      label: "codex auth",
-      run: () => checkAuth("codex"),
+      label: "codex health",
+      run: () => checkBinaryHealth("codex"),
     },
     {
       label: "~/.claude/",

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
+  appendFileSync,
   existsSync,
   mkdirSync,
   rmSync,
@@ -602,6 +603,47 @@ describe("backfillResolved", () => {
     expect(lines).toHaveLength(1);
     // Still resolved in round 2, NOT updated to 3
     expect(parseLine(lines[0]).resolved_in_round).toBe(2);
+  });
+
+  // Bug fix: backfillResolved skips malformed JSONL lines without crashing
+  it("skips malformed JSONL lines without crashing", () => {
+    // Write one valid finding
+    appendFindings({
+      findings: [makeFinding({ id: "r1-f-001" })],
+      sessionId: "20260314-100000",
+      round: 1,
+      project: "/Users/kailash/code/myapp",
+      baseDir: TEST_DIR,
+    });
+
+    // Manually append a malformed (truncated JSON) line
+    const malformedLine = '{"timestamp":"2026-03-14T10:00:00.000Z","project":"/Users/kailash/code/myapp","sessionId":"20260314-100000","round":1,"finding":{"id":"r1-f-002"';
+    appendFileSync(join(TEST_DIR, "findings.jsonl"), malformedLine + "\n");
+
+    // Verify file has 2 lines before backfill
+    const linesBefore = readLines();
+    expect(linesBefore).toHaveLength(2);
+
+    // Call backfillResolved matching the valid line — should NOT throw
+    expect(() =>
+      backfillResolved({
+        resolvedFindings: [makeFinding({ id: "r1-f-001" })],
+        sessionId: "20260314-100000",
+        resolvedInRound: 2,
+        baseDir: TEST_DIR,
+      }),
+    ).not.toThrow();
+
+    const linesAfter = readLines();
+    // Still 2 lines
+    expect(linesAfter).toHaveLength(2);
+
+    // Valid line gets resolved_in_round updated
+    const validEntry = parseLine(linesAfter[0]);
+    expect(validEntry.resolved_in_round).toBe(2);
+
+    // Malformed line preserved as-is in output
+    expect(linesAfter[1]).toBe(malformedLine);
   });
 
   it("handles backfill when all entries are already resolved", () => {

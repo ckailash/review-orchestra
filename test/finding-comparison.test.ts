@@ -167,12 +167,11 @@ describe("finding comparison", () => {
 
       const result = await compareFindings(current, previous);
 
-      // With file + title key (no line), both previous entries map to the same key.
-      // The Map keeps the last one (r1-f-002). Both current entries also map to the
-      // same key and both match against the Map entry, so both become persisting
-      // with the same preserved ID.
+      // With file + title key (no line), both previous entries share the same key.
+      // The array-based map holds both; current entries consume them FIFO, so
+      // the first current gets r1-f-001 and the second gets r1-f-002.
       expect(result.persistingFindings).toHaveLength(2);
-      expect(result.persistingFindings.every(f => f.id === "r1-f-002")).toBe(true);
+      expect(result.persistingFindings.map(f => f.id).sort()).toEqual(["r1-f-001", "r1-f-002"]);
       expect(result.newFindings).toHaveLength(0);
       expect(result.resolvedFindings).toHaveLength(0);
     });
@@ -190,6 +189,22 @@ describe("finding comparison", () => {
       expect(result.persistingFindings).toHaveLength(1);
       expect(result.persistingFindings[0].id).toBe("r1-f-001");
       expect(result.newFindings).toHaveLength(0);
+      expect(result.resolvedFindings).toHaveLength(0);
+    });
+
+    it("findings with leading/trailing whitespace in title still match", async () => {
+      const previous = [
+        makeFinding({ id: "r1-f-001", file: "src/auth.ts", title: "  SQL injection  " }),
+      ];
+      const current = [
+        makeFinding({ file: "src/auth.ts", title: "SQL injection" }),
+      ];
+
+      const result = await compareFindings(current, previous);
+
+      expect(result.newFindings).toHaveLength(0);
+      expect(result.persistingFindings).toHaveLength(1);
+      expect(result.persistingFindings[0].id).toBe("r1-f-001");
       expect(result.resolvedFindings).toHaveLength(0);
     });
 
@@ -580,6 +595,29 @@ describe("finding comparison", () => {
       );
     });
 
+    it("parses LLM response wrapped in markdown code blocks", async () => {
+      const markdownResponse = `Here is the comparison:
+\`\`\`json
+{"matches": [{"current": "CUR-1", "previous": "PREV-1"}]}
+\`\`\``;
+
+      mockSpawnWithStreaming.mockResolvedValue(markdownResponse);
+
+      const previous = [
+        makeFinding({ id: "r1-f-001", file: "src/auth.ts", title: "SQL injection" }),
+      ];
+      const current = [
+        makeFinding({ file: "src/auth.ts", title: "SQL injection" }),
+      ];
+
+      const result = await compareFindings(current, previous, LLM_CONFIG);
+
+      expect(result.persistingFindings).toHaveLength(1);
+      expect(result.persistingFindings[0].id).toBe("r1-f-001");
+      expect(result.newFindings).toHaveLength(0);
+      expect(result.resolvedFindings).toHaveLength(0);
+    });
+
     it("falls back on invalid match IDs in response", async () => {
       const logModule = await import("../src/log");
       const logSpy = vi.spyOn(logModule, "log");
@@ -777,7 +815,7 @@ describe("finding comparison", () => {
           args: ["-p", "-", "--output-format", "text", "--model", "claude-haiku-4-5"],
           label: "finding-comparison",
           inactivityTimeout: 60000,
-          catastrophicTimeout: 600000,
+          catastrophicTimeout: 120000,
         }),
       );
 

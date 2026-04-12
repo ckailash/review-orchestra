@@ -469,4 +469,28 @@ That's all I found.`;
     expect(result[1].id).toBeTruthy();
     expect(result[0].id).not.toBe(result[1].id);
   });
+
+  it("returns empty array for empty findings array", () => {
+    const result = parseReviewerOutput('{"findings": []}', "test-reviewer");
+    expect(result).toEqual([]);
+  });
+
+  it("converts string line numbers to integers", () => {
+    const input = JSON.stringify({
+      findings: [{
+        file: "test.ts",
+        line: "42",
+        title: "Test",
+        description: "Desc",
+        suggestion: "Fix",
+        category: "general",
+        confidence: "likely",
+        impact: "functional",
+      }]
+    });
+    const result = parseReviewerOutput(input, "test-reviewer");
+    expect(result).toHaveLength(1);
+    expect(result[0].line).toBe(42);
+    expect(typeof result[0].line).toBe("number");
+  });
 });

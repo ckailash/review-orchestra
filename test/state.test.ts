@@ -848,6 +848,15 @@ describe("SessionManager", () => {
       expect(sm.getState().status).toBe("active");
     });
 
+    it("throws when lock held by a live process", () => {
+      // Write the lock file with the current process PID (definitely alive)
+      writeFileSync(join(TEST_DIR, "state.lock"), String(process.pid));
+      const sm = new SessionManager(TEST_DIR);
+      expect(() => sm.startOrContinue(makeScope())).toThrow(
+        "Another review-orchestra instance is running",
+      );
+    });
+
     it("overwrites stale lock from dead PID", () => {
       // Write a lock file with a PID that doesn't exist
       writeFileSync(join(TEST_DIR, "state.lock"), "999999999");

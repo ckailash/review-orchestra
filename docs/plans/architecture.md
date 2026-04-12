@@ -5,7 +5,7 @@
 A Claude Code skill that runs multiple AI reviewers (Claude + Codex by default) in parallel, consolidates findings, and presents them to the user. The orchestrator Claude fixes code directly with user guidance in a supervised loop.
 
 **Status:** Alpha
-**Updated:** 2026-04-08
+**Updated:** 2026-04-12
 
 ---
 
@@ -61,10 +61,13 @@ review-orchestra/
 │   │   ├── prompt.ts                 # Review prompt builder
 │   │   └── index.ts                  # Registry / factory
 │   ├── consolidator.ts              # Dedup, classify, merge findings
+│   ├── finding-comparison.ts        # Finding comparison (heuristic + LLM)
+│   ├── findings-store.ts            # Persistent cross-session finding storage
 │   ├── scope.ts                     # Diff scope auto-detection
 │   ├── config.ts                    # Configuration loading & defaults
 │   ├── types.ts                     # Shared types (Finding, Round, SessionState, etc.)
 │   ├── state.ts                     # Session-based state tracking (file-based JSON)
+│   ├── worktree-hash.ts             # Worktree SHA-256 for stale detection
 │   ├── reviewer-parser.ts           # Parse/normalize reviewer output
 │   ├── parse-args.ts                # Natural language CLI argument parsing
 │   ├── process.ts                   # Process spawning with streaming
@@ -73,6 +76,7 @@ review-orchestra/
 │   ├── checks.ts                    # Shared check functions for setup/doctor
 │   ├── setup.ts                     # Setup command (runs checks + fixes)
 │   ├── doctor.ts                    # Doctor command (runs checks + reports)
+│   ├── progress.ts                  # Progress file (reviewer status during review)
 │   ├── json-utils.ts                # JSON extraction & envelope unwrapping
 │   └── log.ts                       # Logging utilities
 ├── schemas/
@@ -97,6 +101,12 @@ review-orchestra/
 │   ├── checks.test.ts
 │   ├── setup.test.ts
 │   ├── doctor.test.ts
+│   ├── finding-comparison.test.ts
+│   ├── findings-store.test.ts
+│   ├── worktree-hash.test.ts
+│   ├── process.test.ts
+│   ├── reviewers.test.ts
+│   ├── prompt.test.ts
 │   └── security.test.ts
 ├── evals/                            # LLM eval harness
 │   ├── repos/                        # Synthetic repos with planted bugs
@@ -131,14 +141,14 @@ The orchestrator launches all configured reviewers in parallel:
 
 ```bash
 # Claude (default reviewer 1)
-claude -p "$REVIEW_PROMPT" \
-  --allowedTools "Read,Grep,Glob,Bash" \
+claude -p - \
+  --allowed-tools "Read,Grep,Glob,Bash" \
   --output-format json > $STATE_DIR/claude-round-N.json &
 
 # Codex (default reviewer 2)
-codex exec "$REVIEW_PROMPT" \
-  --output-schema ./schemas/findings.schema.json \
-  -o $STATE_DIR/codex-round-N.json &
+codex exec - \
+  --output-last-message $STATE_DIR/codex-round-N.json \
+  --json &
 
 wait  # Both finish
 ```
@@ -247,6 +257,12 @@ interface Reviewer {
   },
   "thresholds": {
     "stopAt": "p1"
+  },
+  "findingComparison": {
+    "method": "llm",
+    "model": "claude-haiku-4-5",
+    "timeoutMs": 60000,
+    "fallback": "heuristic"
   }
 }
 ```
@@ -365,7 +381,7 @@ Finding IDs are round-scoped (`r1-f-001`, `r2-f-003`) to prevent collisions acro
 
 Resolved findings (in previous round but not current) are returned in a separate `resolvedFindings` array in the `ReviewResult`, not mixed into the main findings list. This avoids ambiguity about whether a "resolved" entry is actionable.
 
-**Matching heuristic:** Findings are compared across rounds by `file + title.toLowerCase()`. This is best-effort — see `docs/plans/supervised-flow.md` for known limitations. The `[new]`/`[persisting]` tags are presentation aids for user orientation, not policy inputs.
+**Finding comparison:** Findings are compared across rounds using two methods. The default is LLM-based semantic matching via Claude Haiku, which spawns a headless `claude -p` call with a structured comparison prompt. This handles renamed files, shifted line numbers, and reworded descriptions. Falls back to heuristic matching (`file + title.toLowerCase()`) on LLM failure or when configured with `method: "heuristic"`. The `[new]`/`[persisting]` tags are presentation aids for user orientation, not policy inputs.
 
 ## State & Round History
 
@@ -569,7 +585,7 @@ Results are saved to `evals/results/` with timestamps for regression tracking.
 | Consolidation location | CLI (not skill/LLM) | Deterministic code: dedup, P-level, pre-existing tagging. No reason to make the LLM do it. |
 | Session persistence | Session-based state with worktree hashes | Supports multi-invocation supervised loop. Round-scoped finding IDs prevent collisions. Worktree hashes enable stale-detection. |
 | Finding IDs | Round-scoped (`r1-f-001`) | Prevents collisions across review rounds. User can reference specific findings unambiguously. |
-| Finding comparison | File + title matching across rounds | Tags current findings as new/persisting; resolved findings in separate array. Best-effort heuristic — presentation aid, not policy input. |
+| Finding comparison | LLM-based semantic matching (haiku) with heuristic fallback | Handles renamed files, shifted line numbers, reworded descriptions. Haiku is fast/cheap. Heuristic fallback ensures reliability. |
 | Fresh agent principle | Reviewers have no prior-round memory | Fresh headless instances each round. The orchestrator (who wrote the code) is the worst reviewer of its own work — fresh eyes catch more. |
 | Finding framing | Expected/observed/suggestion (optional) | Three optional lenses per finding: what should be (expected), what is (observed), how to fix (suggestion). Optional because not all finding types benefit equally. |
 | Evidence on findings | Optional `evidence: string[]` | Free-form string array for supporting evidence. Lets reviewers show their work. Especially valuable for verified/security findings. |

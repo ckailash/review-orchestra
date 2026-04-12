@@ -17,11 +17,14 @@ function argsToCmd(args: unknown[]): string {
 
 beforeEach(() => {
   mockExecFile.mockReset();
+  mockExecFile.mockImplementation((_cmd: string, args: string[]) => {
+    throw new Error(`unmocked git command: git ${args?.join(" ") ?? ""}`);
+  });
 });
 
 describe("detectScope", () => {
   describe("uncommitted changes", () => {
-    it("detects staged + unstaged changes", async () => {
+    it("detects staged + unstaged changes", () => {
       mockExecFile.mockImplementation((...args: unknown[]) => {
         const cmd = argsToCmd(args);
         if (cmd === "git diff --name-only") return "src/foo.ts\n";
@@ -35,7 +38,7 @@ describe("detectScope", () => {
         return "";
       });
 
-      const scope = await detectScope();
+      const scope = detectScope();
       expect(scope.type).toBe("uncommitted");
       expect(scope.files).toContain("src/foo.ts");
       expect(scope.files).toContain("src/bar.ts");
@@ -44,7 +47,7 @@ describe("detectScope", () => {
   });
 
   describe("branch changes", () => {
-    it("detects committed changes on a branch vs main", async () => {
+    it("detects committed changes on a branch vs main", () => {
       mockExecFile.mockImplementation((...args: unknown[]) => {
         const cmd = argsToCmd(args);
         // No uncommitted changes
@@ -75,7 +78,7 @@ describe("detectScope", () => {
         return "";
       });
 
-      const scope = await detectScope();
+      const scope = detectScope();
       expect(scope.type).toBe("branch");
       expect(scope.files).toEqual([
         "src/auth/middleware.ts",
@@ -87,7 +90,7 @@ describe("detectScope", () => {
   });
 
   describe("path filtering", () => {
-    it("filters detected files to only specified paths", async () => {
+    it("filters detected files to only specified paths", () => {
       mockExecFile.mockImplementation((...args: unknown[]) => {
         const cmd = argsToCmd(args);
         if (cmd === "git diff --name-only") return "";
@@ -112,7 +115,7 @@ describe("detectScope", () => {
         return "";
       });
 
-      const scope = await detectScope(["src/auth/"]);
+      const scope = detectScope(["src/auth/"]);
       expect(scope.files).toEqual([
         "src/auth/middleware.ts",
         "src/auth/login.ts",
@@ -122,7 +125,7 @@ describe("detectScope", () => {
   });
 
   describe("main branch with uncommitted changes", () => {
-    it("detects uncommitted changes even on main", async () => {
+    it("detects uncommitted changes even on main", () => {
       mockExecFile.mockImplementation((...args: unknown[]) => {
         const cmd = argsToCmd(args);
         if (cmd === "git diff --name-only") {
@@ -139,14 +142,14 @@ describe("detectScope", () => {
         return "";
       });
 
-      const scope = await detectScope();
+      const scope = detectScope();
       expect(scope.type).toBe("uncommitted");
       expect(scope.files).toEqual(["src/index.ts"]);
     });
   });
 
   describe("baseCommitSha", () => {
-    it("populates baseCommitSha for uncommitted scope", async () => {
+    it("populates baseCommitSha for uncommitted scope", () => {
       mockExecFile.mockImplementation((...args: unknown[]) => {
         const cmd = argsToCmd(args);
         if (cmd === "git diff --name-only") return "src/foo.ts\n";
@@ -161,14 +164,14 @@ describe("detectScope", () => {
         return "";
       });
 
-      const scope = await detectScope();
+      const scope = detectScope();
       expect(scope.type).toBe("uncommitted");
       expect(scope.baseCommitSha).toBe("abc123def456");
     });
   });
 
   describe("no changes detected", () => {
-    it("throws when there is nothing to review", async () => {
+    it("throws when there is nothing to review", () => {
       mockExecFile.mockImplementation((...args: unknown[]) => {
         const cmd = argsToCmd(args);
         if (cmd === "git diff --name-only") return "";
@@ -181,22 +184,69 @@ describe("detectScope", () => {
         return "";
       });
 
-      await expect(detectScope()).rejects.toThrow("No changes detected");
+      expect(() => detectScope()).toThrow("No changes detected");
+    });
+  });
+
+  describe("diff size limit enforcement", () => {
+    it("throws when diff exceeds MAX_DIFF_BYTES", () => {
+      // MAX_DIFF_BYTES is 512 * 1024 = 524288
+      const largeDiff = "x".repeat(512 * 1024 + 1);
+      mockExecFile.mockImplementation((...args: unknown[]) => {
+        const cmd = argsToCmd(args);
+        if (cmd === "git diff --name-only") return "src/big.ts\n";
+        if (cmd === "git diff --cached --name-only") return "";
+        if (cmd === "git ls-files --others --exclude-standard") return "";
+        if (cmd === "git diff HEAD") return largeDiff;
+        if (cmd === "git rev-parse --abbrev-ref HEAD") return "main\n";
+        if (cmd.startsWith("git log")) return "";
+        return "";
+      });
+
+      expect(() => detectScope()).toThrow("Diff is too large");
+    });
+  });
+
+  describe("untracked files in uncommitted scope", () => {
+    it("includes untracked files in uncommitted scope", () => {
+      mockExecFile.mockImplementation((...args: unknown[]) => {
+        const cmd = argsToCmd(args);
+        if (cmd === "git diff --name-only") return "";
+        if (cmd === "git diff --cached --name-only") return "";
+        if (cmd === "git ls-files --others --exclude-standard") return "new-file.ts\n";
+        // HEAD diff covers tracked files — empty since no tracked changes
+        if (cmd === "git diff HEAD") return "";
+        if (cmd === "git rev-parse --abbrev-ref HEAD") return "main\n";
+        if (cmd === "git log --oneline -10 HEAD") return "abc commit msg\n";
+        // diffNewFile uses --no-index which exits with code 1
+        if (cmd === "git diff --no-index /dev/null new-file.ts") {
+          const err = new Error("exit code 1") as Error & { stdout: string };
+          err.stdout = "diff --git a/dev/null b/new-file.ts\n--- /dev/null\n+++ b/new-file.ts\n@@ -0,0 +1,3 @@\n+const x = 1;\n+export default x;\n";
+          throw err;
+        }
+        return "";
+      });
+
+      const scope = detectScope();
+      expect(scope.type).toBe("uncommitted");
+      expect(scope.files).toContain("new-file.ts");
+      expect(scope.diff).toContain("new-file.ts");
+      expect(scope.diff).toContain("const x = 1");
     });
   });
 
   describe("path validation", () => {
-    it("rejects paths with .. traversal", async () => {
-      await expect(detectScope(["../../etc/"])).rejects.toThrow("Invalid path filters");
+    it("rejects paths with .. traversal", () => {
+      expect(() => detectScope(["../../etc/"])).toThrow("Invalid path filters");
     });
 
-    it("rejects absolute paths in filters", async () => {
-      await expect(detectScope(["/etc/passwd"])).rejects.toThrow("Invalid path filters");
+    it("rejects absolute paths in filters", () => {
+      expect(() => detectScope(["/etc/passwd"])).toThrow("Invalid path filters");
     });
   });
 
   describe("commitMessages", () => {
-    it("populates commitMessages for branch scope", async () => {
+    it("populates commitMessages for branch scope", () => {
       mockExecFile.mockImplementation((...args: unknown[]) => {
         const cmd = argsToCmd(args);
         if (cmd === "git diff --name-only") return "";
@@ -219,14 +269,14 @@ describe("detectScope", () => {
         return "";
       });
 
-      const scope = await detectScope();
+      const scope = detectScope();
       expect(scope.type).toBe("branch");
       expect(scope.commitMessages).toBe(
         "abc1234 add auth\ndef5678 add middleware"
       );
     });
 
-    it("populates commitMessages for uncommitted scope", async () => {
+    it("populates commitMessages for uncommitted scope", () => {
       mockExecFile.mockImplementation((...args: unknown[]) => {
         const cmd = argsToCmd(args);
         if (cmd === "git diff --name-only") return "src/foo.ts\n";
@@ -242,14 +292,14 @@ describe("detectScope", () => {
         return "";
       });
 
-      const scope = await detectScope();
+      const scope = detectScope();
       expect(scope.type).toBe("uncommitted");
       expect(scope.commitMessages).toBe(
         "aaa1111 recent commit\nbbb2222 older commit"
       );
     });
 
-    it("populates commitMessages for commit scope", async () => {
+    it("populates commitMessages for commit scope", () => {
       mockExecFile.mockImplementation((...args: unknown[]) => {
         const cmd = argsToCmd(args);
         if (cmd === "git rev-parse --verify abc1234") return "abc1234\n";
@@ -265,14 +315,14 @@ describe("detectScope", () => {
         return "";
       });
 
-      const scope = await detectScope([], "abc1234");
+      const scope = detectScope([], "abc1234");
       expect(scope.type).toBe("commit");
       expect(scope.commitMessages).toBe(
         "def5678 fix bug\nghi9012 add feature"
       );
     });
 
-    it("sets commitMessages to undefined when git log fails on fresh repo", async () => {
+    it("sets commitMessages to undefined when git log fails on fresh repo", () => {
       mockExecFile.mockImplementation((...args: unknown[]) => {
         const cmd = argsToCmd(args);
         if (cmd === "git diff --name-only") return "src/foo.ts\n";
@@ -291,7 +341,7 @@ describe("detectScope", () => {
         return "";
       });
 
-      const scope = await detectScope();
+      const scope = detectScope();
       expect(scope.type).toBe("uncommitted");
       expect(scope.commitMessages).toBeUndefined();
       expect(scope.files).toContain("src/foo.ts");

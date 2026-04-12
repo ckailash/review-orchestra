@@ -1,6 +1,6 @@
 # Supervised Flow — Feature Plan
 
-**Status:** Planned (not started)
+**Status:** Complete
 **Priority:** Next — before learnings
 **Written:** 2026-03-15
 **Updated:** 2026-04-07 — folded checkpointing plan into step 3 (crash recovery subsection); previous: uplifted after consolidated review (Claude + Codex): completed deletion inventory, resolved finding ID scheme, expanded session model scope, merged steps 2+3 into atomic migration, acknowledged architecture.md rewrite scope

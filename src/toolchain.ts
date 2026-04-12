@@ -72,13 +72,13 @@ export function detectToolchain(rootDir: string = process.cwd()): ToolchainInfo 
 
     if (existsSync(join(rootDir, "pyproject.toml"))) {
       const pyproject = readFileSync(join(rootDir, "pyproject.toml"), "utf-8");
-      if (pyproject.includes("pytest")) {
+      if (/\bpytest\b/.test(pyproject)) {
         commands.push({ name: "test", command: "pytest", description: "Run test suite" });
       }
-      if (pyproject.includes("ruff")) {
+      if (/\bruff\b/.test(pyproject)) {
         commands.push({ name: "lint", command: "ruff check .", description: "Run Ruff linter" });
       }
-      if (pyproject.includes("mypy")) {
+      if (/\bmypy\b/.test(pyproject)) {
         commands.push({ name: "typecheck", command: "mypy .", description: "Run type checker" });
       }
     }

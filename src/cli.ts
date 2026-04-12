@@ -53,7 +53,7 @@ async function runReview(remaining: string[]): Promise<void> {
   console.error("[review-orchestra] Detecting scope...");
   let scope;
   try {
-    scope = await detectScope(args.paths, args.commitRef);
+    scope = detectScope(args.paths, args.commitRef);
   } catch (err) {
     console.error(`[review-orchestra] ${err instanceof Error ? err.message : String(err)}`);
     process.exit(1);

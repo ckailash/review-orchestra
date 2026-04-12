@@ -1,6 +1,22 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { loadConfig, DEFAULT_CONFIG, DEFAULT_FINDING_COMPARISON_CONFIG } from "../src/config";
 import type { Config } from "../src/types";
+
+const mockConfigOverride = vi.hoisted(() => ({ json: null as string | null }));
+
+vi.mock("fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("fs")>();
+  return {
+    ...actual,
+    readFileSync: (...args: unknown[]) => {
+      const path = args[0] as string;
+      if (mockConfigOverride.json !== null && typeof path === "string" && path.includes("default.json")) {
+        return mockConfigOverride.json;
+      }
+      return actual.readFileSync.apply(null, args as Parameters<typeof actual.readFileSync>);
+    },
+  };
+});
 
 describe("loadConfig", () => {
   it("returns default config when no overrides provided", () => {
@@ -53,11 +69,48 @@ describe("loadConfig", () => {
     expect(config.reviewers.codex.enabled).toBe(true);
   });
 
-  it("DEFAULT_CONFIG is a frozen reference", () => {
+  it("logs warning and returns defaults when config has invalid JSON", () => {
+    mockConfigOverride.json = "{invalid";
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const config = loadConfig();
+
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("invalid JSON"),
+    );
+    expect(config.thresholds.stopAt).toBe(DEFAULT_CONFIG.thresholds.stopAt);
+    expect(config.reviewers.claude.enabled).toBe(true);
+    expect(config.reviewers.codex.enabled).toBe(true);
+
+    mockConfigOverride.json = null;
+    errorSpy.mockRestore();
+  });
+
+  it("adding a new reviewer via overrides fills in defaults", () => {
+    const config = loadConfig({
+      reviewers: { gemini: { enabled: true, command: "gemini review" } },
+    });
+    expect(config.reviewers.gemini).toBeDefined();
+    expect(config.reviewers.gemini.enabled).toBe(true);
+    expect(config.reviewers.gemini.command).toBe("gemini review");
+    expect(config.reviewers.gemini.outputFormat).toBe("json"); // filled default
+  });
+
+  it("DEFAULT_CONFIG is deeply frozen", () => {
     const a = DEFAULT_CONFIG;
     const b = DEFAULT_CONFIG;
     expect(a).toBe(b);
     expect(a.thresholds.stopAt).toBe("p1");
+    // Top-level frozen
+    expect(Object.isFrozen(DEFAULT_CONFIG)).toBe(true);
+    // Nested objects are also frozen
+    expect(Object.isFrozen(DEFAULT_CONFIG.reviewers)).toBe(true);
+    expect(Object.isFrozen(DEFAULT_CONFIG.reviewers.claude)).toBe(true);
+    expect(Object.isFrozen(DEFAULT_CONFIG.reviewers.codex)).toBe(true);
+    expect(Object.isFrozen(DEFAULT_CONFIG.thresholds)).toBe(true);
+    expect(Object.isFrozen(DEFAULT_CONFIG.findingComparison)).toBe(true);
+    // DEFAULT_FINDING_COMPARISON_CONFIG is also deeply frozen
+    expect(Object.isFrozen(DEFAULT_FINDING_COMPARISON_CONFIG)).toBe(true);
   });
 
   it("DEFAULT_CONFIG includes findingComparison with correct defaults", () => {
@@ -102,10 +155,10 @@ describe("findingComparison config", () => {
 
   it("loadConfig can override model and timeoutMs", () => {
     const config = loadConfig({
-      findingComparison: { model: "claude-sonnet-4-20250514", timeoutMs: 60000 },
+      findingComparison: { model: "claude-sonnet-4-20250514", timeoutMs: 90000 },
     });
     expect(config.findingComparison!.model).toBe("claude-sonnet-4-20250514");
-    expect(config.findingComparison!.timeoutMs).toBe(60000);
+    expect(config.findingComparison!.timeoutMs).toBe(90000);
     // method stays default
     expect(config.findingComparison!.method).toBe("llm");
   });

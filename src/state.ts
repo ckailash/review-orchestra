@@ -229,7 +229,7 @@ export class SessionManager {
     this.releaseLock();
   }
 
-  persist(): void {
+  private persist(): void {
     mkdirSync(this.stateDir, { recursive: true });
     // Atomic write: write to tmp, then rename
     const tmpFile = join(this.stateDir, "session.json.tmp");

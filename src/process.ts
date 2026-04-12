@@ -32,6 +32,10 @@ export function spawnWithStreaming(opts: SpawnOptions): Promise<string> {
     inactivityTimeout = DEFAULT_INACTIVITY_TIMEOUT,
   } = opts;
 
+  if (!/^[a-zA-Z0-9._\-/]+$/.test(bin)) {
+    return Promise.reject(new Error(`${label}: invalid binary name: ${bin}`));
+  }
+
   return new Promise((resolve, reject) => {
     const child = spawn(bin, args, {
       env,
@@ -41,11 +45,13 @@ export function spawnWithStreaming(opts: SpawnOptions): Promise<string> {
     const stdoutChunks: Buffer[] = [];
     let catastrophicTimer: ReturnType<typeof setTimeout> | null = null;
     let inactivityTimer: ReturnType<typeof setTimeout> | null = null;
+    let sigkillTimer: ReturnType<typeof setTimeout> | null = null;
     const startMs = Date.now();
 
     function cleanup() {
       if (catastrophicTimer) clearTimeout(catastrophicTimer);
       if (inactivityTimer) clearTimeout(inactivityTimer);
+      if (sigkillTimer) clearTimeout(sigkillTimer);
     }
 
     function resetInactivityTimer() {
@@ -54,7 +60,8 @@ export function spawnWithStreaming(opts: SpawnOptions): Promise<string> {
         const elapsed = ((Date.now() - startMs) / 1000).toFixed(0);
         log(`${label}: inactivity timeout (no output for ${inactivityTimeout / 1000}s, elapsed ${elapsed}s) — killing process`);
         child.kill("SIGTERM");
-        setTimeout(() => {
+        if (sigkillTimer) clearTimeout(sigkillTimer);
+        sigkillTimer = setTimeout(() => {
           if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
         }, 5000);
       }, inactivityTimeout);
@@ -67,7 +74,8 @@ export function spawnWithStreaming(opts: SpawnOptions): Promise<string> {
       const elapsed = ((Date.now() - startMs) / 1000 / 60).toFixed(1);
       log(`${label}: catastrophic timeout (${elapsed} min) — killing process`);
       child.kill("SIGTERM");
-      setTimeout(() => {
+      if (sigkillTimer) clearTimeout(sigkillTimer);
+      sigkillTimer = setTimeout(() => {
         if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
       }, 5000);
     }, catastrophicTimeout);

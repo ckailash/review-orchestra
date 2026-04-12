@@ -1,5 +1,6 @@
 import type { Confidence, Finding, Impact, PLevel } from "./types";
 import { extractJson, unwrapCliEnvelope } from "./json-utils";
+import { log } from "./log";
 
 const P_LEVEL_MATRIX: Record<Confidence, Record<Impact, PLevel>> = {
   verified: { critical: "p0", functional: "p1", quality: "p2", nitpick: "p3" },
@@ -78,7 +79,10 @@ function normalizeFinding(
 
 export function parseReviewerOutput(raw: string, reviewer: string): Finding[] {
   const rawParsed = extractJson(raw);
-  if (rawParsed === null) return [];
+  if (rawParsed === null) {
+    log(`warning: could not extract JSON from ${reviewer} output (${raw.length} bytes)`);
+    return [];
+  }
 
   const parsed = unwrapCliEnvelope(rawParsed);
 

@@ -32,13 +32,13 @@ import {
   checkGit,
   checkCliOnPath,
   checkBinary,
-  checkAuth,
+  checkBinaryHealth,
   checkClaudeHome,
   checkSkillSymlink,
   checkSchemaFile,
   checkGitignore,
 } from "../src/checks";
-import type { CheckResult, CheckStatus } from "../src/checks";
+
 
 // --- Helpers ---
 
@@ -261,11 +261,11 @@ describe("checkBinary", () => {
 
 // --- checkAuth ---
 
-describe("checkAuth", () => {
+describe("checkBinaryHealth", () => {
   it("returns pass when binary --version exits 0", () => {
     mockExecFileSync.mockReturnValue(Buffer.from("claude 1.0.0\n"));
-    const result = checkAuth("claude");
-    expect(result.name).toBe("claude-auth");
+    const result = checkBinaryHealth("claude");
+    expect(result.name).toBe("claude-health");
     expect(result.status).toBe("pass");
     // Verify called with 5-second timeout
     expect(mockExecFileSync).toHaveBeenCalledWith(
@@ -279,7 +279,7 @@ describe("checkAuth", () => {
     mockExecFileSync.mockImplementation(() => {
       throw new Error("command failed");
     });
-    const result = checkAuth("claude");
+    const result = checkBinaryHealth("claude");
     expect(result.status).toBe("fail");
     expect(result.remediation).toBeDefined();
   });
@@ -288,7 +288,7 @@ describe("checkAuth", () => {
     mockExecFileSync.mockImplementation(() => {
       throw new Error("command failed");
     });
-    const result = checkAuth("codex");
+    const result = checkBinaryHealth("codex");
     expect(result.status).toBe("warn");
     expect(result.remediation).toBeDefined();
   });
@@ -299,7 +299,7 @@ describe("checkAuth", () => {
     mockExecFileSync.mockImplementation(() => {
       throw err;
     });
-    const result = checkAuth("claude");
+    const result = checkBinaryHealth("claude");
     expect(result.status).toBe("fail");
   });
 
@@ -309,13 +309,13 @@ describe("checkAuth", () => {
     mockExecFileSync.mockImplementation(() => {
       throw err;
     });
-    const result = checkAuth("codex");
+    const result = checkBinaryHealth("codex");
     expect(result.status).toBe("warn");
   });
 
   it("uses 5-second timeout", () => {
     mockExecFileSync.mockReturnValue(Buffer.from("v1.0.0\n"));
-    checkAuth("claude");
+    checkBinaryHealth("claude");
     expect(mockExecFileSync).toHaveBeenCalledWith(
       "claude",
       ["--version"],
@@ -536,28 +536,4 @@ describe("checkGitignore", () => {
   });
 });
 
-// --- Type exports ---
 
-describe("type exports", () => {
-  it("CheckResult has the expected shape", () => {
-    const result: CheckResult = {
-      name: "test",
-      status: "pass" as CheckStatus,
-      message: "test message",
-    };
-    expect(result.name).toBe("test");
-    expect(result.status).toBe("pass");
-    expect(result.message).toBe("test message");
-    expect(result.remediation).toBeUndefined();
-  });
-
-  it("CheckResult supports optional remediation", () => {
-    const result: CheckResult = {
-      name: "test",
-      status: "fail",
-      message: "failed",
-      remediation: "fix it",
-    };
-    expect(result.remediation).toBe("fix it");
-  });
-});

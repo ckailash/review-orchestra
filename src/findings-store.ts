@@ -9,6 +9,7 @@ import {
 import { join } from "path";
 import { homedir } from "os";
 import type { Finding } from "./types";
+import { log } from "./log";
 
 const DEFAULT_BASE_DIR = join(homedir(), ".review-orchestra");
 const JSONL_FILENAME = "findings.jsonl";
@@ -94,7 +95,13 @@ export function backfillResolved(options: BackfillResolvedOptions): void {
 
   let modified = false;
   const updatedLines = lines.map((line) => {
-    const entry = JSON.parse(line) as JsonlEntry;
+    let entry: JsonlEntry;
+    try {
+      entry = JSON.parse(line) as JsonlEntry;
+    } catch {
+      log(`warning: skipping malformed JSONL line in findings store`);
+      return line;
+    }
 
     if (
       entry.sessionId === sessionId &&
