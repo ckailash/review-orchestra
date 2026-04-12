@@ -15,6 +15,16 @@
       "description": "SQL injection in findUsersByRole(): role parameter is interpolated directly into a SELECT query via template literal",
       "expected_impact": "critical",
       "expected_confidence": "verified"
+    },
+    {
+      "description": "Sensitive data exposure in login(): returns the full User object including password_hash to callers via SELECT *, leaking the password hash to downstream code and potentially to API consumers",
+      "expected_impact": "functional",
+      "expected_confidence": "verified"
+    },
+    {
+      "description": "Sensitive data exposure in register(): returns the full User object including password_hash to callers via RETURNING *, unnecessarily exposing the password hash to downstream code and potentially to API consumers",
+      "expected_impact": "functional",
+      "expected_confidence": "verified"
     }
   ]
 }

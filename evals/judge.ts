@@ -74,12 +74,6 @@ ${JSON.stringify(
 For each expected finding, determine if any actual finding matches it (same underlying issue, not necessarily same wording).
 For each actual finding, determine if it's a real issue or a hallucination.
 
-## Severity Matching Criteria
-For each match, evaluate severity_match as follows:
-- Compare the golden finding's "expected_impact" to the actual finding's "impact" field.
-- Compare the golden finding's "expected_confidence" to the actual finding's "confidence" field.
-- severity_match is true ONLY when BOTH axes match (expected_impact == impact AND expected_confidence == confidence).
-
 ## Matching Examples
 
 ### Example: Match (same underlying issue, different wording)
@@ -95,7 +89,7 @@ Actual: "File descriptor leak when write errors are not caught"
 Output JSON:
 {
   "matches": [
-    { "golden_index": 0, "actual_id": "f-001", "severity_match": true }
+    { "golden_index": 0, "actual_id": "f-001" }
   ],
   "hallucinated_ids": ["f-003"],
   "missed_golden_indices": [2]
@@ -114,7 +108,7 @@ export function parseJudgeOutput(
 
     const parsed = unwrapCliEnvelope(extracted) as Record<string, unknown>;
     if (!parsed || typeof parsed !== "object" || !("matches" in parsed)) return fallbackJudge(fixture, actual, golden);
-    const rawMatches = (parsed.matches ?? []) as { golden_index: number; actual_id: string; severity_match: boolean }[];
+    const rawMatches = (parsed.matches ?? []) as { golden_index: number; actual_id: string }[];
 
     // Filter out matches with out-of-range golden_index
     const validRawMatches = rawMatches.filter(
@@ -137,12 +131,12 @@ export function parseJudgeOutput(
 
     // Filter matches to only those whose actual_id resolves to an existing finding
     const resolvedMatches = matches.filter(
-      (m: { golden_index: number; actual_id: string; severity_match: boolean }) => actualById.has(m.actual_id)
+      (m: { golden_index: number; actual_id: string }) => actualById.has(m.actual_id)
     );
 
     const matched = resolvedMatches
       .map(
-        (m: { golden_index: number; actual_id: string; severity_match: boolean }) => ({
+        (m: { golden_index: number; actual_id: string }) => ({
           golden: golden.expected_findings[m.golden_index],
           actual: actualById.get(m.actual_id)!,
         })
@@ -171,13 +165,9 @@ export function parseJudgeOutput(
     const totalActual = actual.length;
     const truePositives = matched.length;
     const severityCorrect = matched.filter(
-      (m) => {
-        const orig = matches.find(
-          (raw: { golden_index: number; actual_id: string; severity_match: boolean }) =>
-            raw.actual_id === m.actual.id
-        );
-        return orig?.severity_match ?? false;
-      }
+      (m) =>
+        m.golden.expected_confidence === m.actual.confidence &&
+        m.golden.expected_impact === m.actual.impact
     ).length;
 
     return {

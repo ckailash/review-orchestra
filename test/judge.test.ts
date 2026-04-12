@@ -490,18 +490,14 @@ describe("fallbackJudge", () => {
 });
 
 describe("buildJudgePrompt", () => {
-  it("includes severity matching criteria", () => {
+  it("does not ask LLM to compute severity_match", () => {
     const actual = [makeFinding({ id: "f-001" })];
     const golden = makeGolden([
       { description: "SQL injection", expected_impact: "critical", expected_confidence: "verified" },
     ]);
 
     const prompt = buildJudgePrompt(actual, golden);
-    expect(prompt).toContain("expected_impact");
-    expect(prompt).toContain("expected_confidence");
-    expect(prompt).toContain("impact");
-    expect(prompt).toContain("confidence");
-    expect(prompt).toContain("severity_match is true ONLY when BOTH axes match");
+    expect(prompt).not.toContain("severity_match");
   });
 
   it("includes match and non-match examples", () => {

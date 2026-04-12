@@ -75,6 +75,46 @@
       "description": "Synchronous session cleanup in session.ts: iterates entire session map synchronously, blocking the event loop",
       "expected_impact": "quality",
       "expected_confidence": "possible"
+    },
+    {
+      "description": "Transaction does not ROLLBACK on failure in db.ts: if any query in transaction() throws, the error propagates without issuing ROLLBACK, leaving the database connection in a failed transaction state",
+      "expected_impact": "functional",
+      "expected_confidence": "verified"
+    },
+    {
+      "description": "Audit logging in session.ts createSession() is fire-and-forget: the query() call is not awaited in the synchronous function, so audit INSERT failures are silently dropped as unhandled promises",
+      "expected_impact": "quality",
+      "expected_confidence": "verified"
+    },
+    {
+      "description": "saveUploadExclusive in uploads.ts does not create the upload directory: unlike saveUpload which has a mkdirSync guard, saveUploadExclusive calls writeFileSync directly and throws ENOENT if the directory does not exist",
+      "expected_impact": "functional",
+      "expected_confidence": "verified"
+    },
+    {
+      "description": "LIKE wildcard characters (%, _) not escaped in users.ts searchUsers(): user input containing SQL wildcards produces unexpected pattern matches independent of the SQL injection vulnerability",
+      "expected_impact": "functional",
+      "expected_confidence": "likely"
+    },
+    {
+      "description": "Sensitive data exposure in users.ts searchUsers(): uses SELECT * and returns full User objects including password_hash and api_key to all callers",
+      "expected_impact": "critical",
+      "expected_confidence": "verified"
+    },
+    {
+      "description": "No filename length validation in uploads.ts saveUploadExclusive(): saveUpload checks filename.length against MAX_FILENAME_LENGTH but saveUploadExclusive omits this check entirely",
+      "expected_impact": "quality",
+      "expected_confidence": "likely"
+    },
+    {
+      "description": "Sensitive data exposure via console.log in db.ts: pool.query() logs every SQL statement to console including interpolated user data (session tokens, user IDs, search terms, role values), leaking sensitive information to stdout/server logs",
+      "expected_impact": "functional",
+      "expected_confidence": "likely"
+    },
+    {
+      "description": "Synchronous file I/O in uploads.ts blocks the Node.js event loop: both saveUpload() and saveUploadExclusive() use writeFileSync, existsSync, and mkdirSync which block during disk I/O, stalling all concurrent request processing especially for large uploads",
+      "expected_impact": "quality",
+      "expected_confidence": "possible"
     }
   ]
 }

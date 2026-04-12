@@ -20,6 +20,16 @@
       "description": "Inconsistent naming convention: max_retries uses snake_case instead of the TypeScript/camelCase convention (maxRetries)",
       "expected_impact": "nitpick",
       "expected_confidence": "verified"
+    },
+    {
+      "description": "No error handling in getUser(): db.query() is not wrapped in try/catch, so database errors (connection failures, invalid queries) propagate as unhandled promise rejections instead of returning a 500 response",
+      "expected_impact": "quality",
+      "expected_confidence": "likely"
+    },
+    {
+      "description": "No error handling in listUsers(): db.query() is not wrapped in try/catch, so database errors propagate as unhandled promise rejections instead of returning a 500 response",
+      "expected_impact": "quality",
+      "expected_confidence": "likely"
     }
   ]
 }

@@ -15,6 +15,21 @@
       "description": "Hardcoded credentials: API key is embedded as a string literal in source code",
       "expected_impact": "critical",
       "expected_confidence": "verified"
+    },
+    {
+      "description": "Credential leakage in response: the hardcoded API key is included in the function return value via template literal, exposing the production secret to every caller of processUserRequest() regardless of how the key is stored",
+      "expected_impact": "critical",
+      "expected_confidence": "verified"
+    },
+    {
+      "description": "Sensitive system file exposure: /etc/passwd contents are read via execSync and returned to the caller in the response, leaking system user information",
+      "expected_impact": "critical",
+      "expected_confidence": "verified"
+    },
+    {
+      "description": "No error handling for execSync or readFileSync: both calls throw on failure (non-zero exit code, missing file) but neither is wrapped in try/catch, causing unhandled exceptions",
+      "expected_impact": "functional",
+      "expected_confidence": "verified"
     }
   ]
 }
