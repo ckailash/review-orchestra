@@ -83,8 +83,8 @@ describe("parseCommand", () => {
   });
 
   it("strips quotes from quoted args", () => {
-    const result = parseCommand('claude --allowed-tools "Read,Grep"');
-    expect(result).toEqual({ bin: "claude", args: ["--allowed-tools", "Read,Grep"] });
+    const result = parseCommand('claude --allowedTools "Read,Grep"');
+    expect(result).toEqual({ bin: "claude", args: ["--allowedTools", "Read,Grep"] });
   });
 
   it("handles empty string", () => {

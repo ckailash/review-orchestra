@@ -38,36 +38,36 @@ Two gaps that block trust in the system:
 
 ### Scope: user-level by default
 
-The supported install mode (per setup-doctor.md) creates a user-level skill symlink at `~/.claude/skills/review-orchestra`. Findings are stored at user scope:
+The supported install mode (per archive/setup-doctor.md) creates a user-level skill symlink at `~/.claude/skills/review-orchestra`. Findings are stored at user scope:
 
 - `~/.review-orchestra/findings.jsonl` — cross-project finding history for distillation
 - `~/.review-orchestra/learnings.md` — distilled rules
 
-Per-session review artifacts (round data, consolidated findings) remain project-scoped in `<project>/.review-orchestra/` — this is the existing layout from architecture.md and supervised-flow.md.
+Per-session review artifacts (round data, consolidated findings) remain project-scoped in `<project>/.review-orchestra/` — this is the existing layout from architecture.md and archive/supervised-flow.md.
 
-**Deferred: project-scope findings.** A future project-scope install mode (skill at `.claude/skills/`) could store findings at `.review-orchestra/findings.jsonl` for project-local distillation. This requires adding project-scope install support to setup-doctor.md first — the install story must drive storage scope, not the other way around.
+**Deferred: project-scope findings.** A future project-scope install mode (skill at `.claude/skills/`) could store findings at `.review-orchestra/findings.jsonl` for project-local distillation. This requires adding project-scope install support to archive/setup-doctor.md first — the install story must drive storage scope, not the other way around.
 
 ### findings.jsonl format
 
 One JSON object per line. Each finding includes run context:
 
 ```jsonl
-{"timestamp":"2026-03-14T10:00:00Z","project":"/Users/kailash/code/myapp","sessionId":"20260314-100000","round":1,"finding":{"id":"r1-f-001","file":"src/auth.ts","line":42,"confidence":"verified","impact":"critical","category":"security","title":"SQL injection via unsanitized user input","expected":"Database queries use parameterized inputs ($1 placeholders) for all user-provided values","observed":"userId is interpolated directly into the SQL query string via template literal","description":"The userId parameter comes from the request URL and is attacker-controlled.","suggestion":"Use parameterized queries: db.query('SELECT * FROM users WHERE id = $1', [userId])","evidence":["Line 42: `db.query(`SELECT * FROM users WHERE id = ${userId}`)` — userId comes from req.params without validation"],"reviewer":"claude"},"status":"new","resolved_in_round":null}
+{"timestamp":"2026-03-14T10:00:00Z","project":"/home/user/code/myapp","sessionId":"20260314-100000","round":1,"finding":{"id":"r1-f-001","file":"src/auth.ts","line":42,"confidence":"verified","impact":"critical","category":"security","title":"SQL injection via unsanitized user input","expected":"Database queries use parameterized inputs ($1 placeholders) for all user-provided values","observed":"userId is interpolated directly into the SQL query string via template literal","description":"The userId parameter comes from the request URL and is attacker-controlled.","suggestion":"Use parameterized queries: db.query('SELECT * FROM users WHERE id = $1', [userId])","evidence":["Line 42: `db.query(`SELECT * FROM users WHERE id = ${userId}`)` — userId comes from req.params without validation"],"reviewer":"claude"},"status":"new","resolved_in_round":null}
 ```
 
 Key fields beyond the finding itself:
 - `project` — which repo
 - `sessionId` — session that produced this finding
 - `round` — which round the finding was first detected in
-- `status` — `new` or `persisting` (matches the canonical `ReviewResult` model from supervised-flow.md where these are the only two statuses on active findings)
+- `status` — `new` or `persisting` (matches the canonical `ReviewResult` model from archive/supervised-flow.md where these are the only two statuses on active findings)
 - `resolved_in_round` — populated retroactively: when a subsequent round's `resolvedFindings` array contains this finding (matched by file + title), this field is set to that round number. Null if the finding is still active or the session ended before re-review. This is a findings.jsonl enrichment — the `ReviewResult` itself doesn't carry this field, but findings.jsonl needs it for cross-session distillation.
-- `expected` — desired state (optional, from finding-quality-enhancement plan)
+- `expected` — desired state (optional, from archive/finding-quality-enhancement plan)
 - `observed` — actual state (optional)
 - `evidence` — supporting evidence array (optional)
 
-**Alignment with `ReviewResult`:** In the canonical model (architecture.md, supervised-flow.md), active findings have status `new` or `persisting`. Resolved findings appear in a separate `resolvedFindings` array — they are not tagged `status: "resolved"` in the main findings list. findings.jsonl follows this: each line is written when a finding first appears (status `new`) or persists across rounds (status `persisting`). Resolution is tracked via `resolved_in_round` being backfilled, not via a status change.
+**Alignment with `ReviewResult`:** In the canonical model (architecture.md, archive/supervised-flow.md), active findings have status `new` or `persisting`. Resolved findings appear in a separate `resolvedFindings` array — they are not tagged `status: "resolved"` in the main findings list. findings.jsonl follows this: each line is written when a finding first appears (status `new`) or persists across rounds (status `persisting`). Resolution is tracked via `resolved_in_round` being backfilled, not via a status change.
 
-Finding IDs are round-scoped for new findings (`r1-f-001`) and stable for persisting findings (per supervised-flow.md). This matches the `Finding` type defined in the finding-quality plan.
+Finding IDs are round-scoped for new findings (`r1-f-001`) and stable for persisting findings (per archive/supervised-flow.md). This matches the `Finding` type defined in the archive/finding-quality-enhancement plan.
 
 ### Distillation
 

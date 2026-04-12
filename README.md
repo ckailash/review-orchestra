@@ -37,18 +37,24 @@ After receiving findings, the orchestrator Claude (who wrote the code and has fu
 - [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) (`claude`)
 - [Codex CLI](https://github.com/openai/codex) (`codex`) — optional, can be disabled
 
-### Setup
+### From npm (recommended)
 
 ```bash
-# Clone and install
-git clone https://github.com/anthropics/review-orchestra.git
+npm install -g review-orchestra
+review-orchestra setup
+```
+
+### From source (contributors)
+
+```bash
+git clone https://github.com/ckailash/review-orchestra.git
 cd review-orchestra
 npm install
 npm run build
-
-# Symlink the skill into Claude Code
-ln -s "$(pwd)/skill" ~/.claude/skills/review-orchestra
+review-orchestra setup
 ```
+
+`review-orchestra setup` validates your environment (Node version, required CLIs), creates the skill symlink for Claude Code, and configures `.gitignore`. Run `review-orchestra doctor` anytime to diagnose issues.
 
 ## Usage
 
@@ -164,7 +170,7 @@ Configuration lives in `config/default.json`:
   "reviewers": {
     "claude": {
       "enabled": true,
-      "command": "claude -p - --allowed-tools \"Read,Grep,Glob,Bash\" --output-format json",
+      "command": "claude -p - --allowedTools \"Read,Grep,Glob,Bash\" --output-format json",
       "outputFormat": "json"
     },
     "codex": {

@@ -27,7 +27,7 @@ export const DEFAULT_CONFIG: Config = deepFreeze({
     claude: {
       enabled: true,
       command:
-        'claude -p - --allowed-tools "Read,Grep,Glob,Bash" --output-format json',
+        'claude -p - --allowedTools "Read,Grep,Glob,Bash" --output-format json',
       outputFormat: "json" as const,
     },
     codex: {

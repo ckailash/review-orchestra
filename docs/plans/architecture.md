@@ -33,7 +33,7 @@ A Claude Code **skill** is the entry point. It orchestrates the workflow but del
 - **Fixing** is done by the orchestrator Claude directly using Edit/Write tools, guided by user decisions. No headless fixer process.
 - **State** is tracked in a session-based JSON file on disk, persisting across multiple CLI invocations
 
-See `docs/plans/supervised-flow.md` for the full supervised flow design.
+See `docs/plans/archive/supervised-flow.md` for the full supervised flow design.
 
 ### Why TypeScript (not shell scripts)
 
@@ -167,7 +167,7 @@ The CLI consolidates both review outputs:
 
 ### Supervised Flow
 
-After Phase 3, the CLI returns the consolidated `ReviewResult` JSON to the skill. The orchestrator presents findings to the user and enters the supervised loop (see `docs/plans/supervised-flow.md`):
+After Phase 3, the CLI returns the consolidated `ReviewResult` JSON to the skill. The orchestrator presents findings to the user and enters the supervised loop (see `docs/plans/archive/supervised-flow.md`):
 
 - **Phase 4: Present** — Orchestrator shows findings grouped by severity with progressive disclosure
 - **Phase 5: User decides** — User selects which findings to fix (by ID, severity band, or "all")
@@ -434,7 +434,7 @@ Key fields:
 - `status` — `active` (accepting new rounds), `expired` (scope base changed, requires reset), or `completed` (user explicitly ended session)
 - `scope` — the diff scope detected at session creation
 - `currentRound` — current round number
-- `worktreeHash` — per-round snapshot for stale-detection. Covers HEAD, staged changes, unstaged changes, and untracked files (see `docs/plans/supervised-flow.md` for precise definition)
+- `worktreeHash` — per-round snapshot for stale-detection. Covers HEAD, staged changes, unstaged changes, and untracked files (see `docs/plans/archive/supervised-flow.md` for precise definition)
 - `rounds[]` — per-round artifacts: round number, worktree hash, findings, timestamp
 - `startedAt` — session creation timestamp
 

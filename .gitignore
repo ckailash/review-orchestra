@@ -6,4 +6,12 @@ evals/results/
 .claude/projects/
 .claude/settings.local.json
 .claude/skills/
+.factory/
+.claude/settings.json
+.DS_Store
+.env
+.env.*
+*.log
+coverage/
 
+docs/research/

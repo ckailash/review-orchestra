@@ -62,7 +62,7 @@ describe("appendFindings", () => {
       findings: [finding],
       sessionId: "20260314-100000",
       round: 1,
-      project: "/Users/kailash/code/myapp",
+      project: "/tmp/test-project",
       baseDir: TEST_DIR,
     });
 
@@ -79,7 +79,7 @@ describe("appendFindings", () => {
       findings: [finding],
       sessionId: "20260314-100000",
       round: 1,
-      project: "/Users/kailash/code/myapp",
+      project: "/tmp/test-project",
       baseDir: TEST_DIR,
     });
 
@@ -94,7 +94,7 @@ describe("appendFindings", () => {
     );
 
     // project is absolute path string
-    expect(parsed.project).toBe("/Users/kailash/code/myapp");
+    expect(parsed.project).toBe("/tmp/test-project");
 
     // sessionId matches YYYYMMDD-HHMMSS
     expect(parsed.sessionId).toBe("20260314-100000");
@@ -137,7 +137,7 @@ describe("appendFindings", () => {
       findings,
       sessionId: "20260314-100000",
       round: 1,
-      project: "/Users/kailash/code/myapp",
+      project: "/tmp/test-project",
       baseDir: TEST_DIR,
     });
 
@@ -149,7 +149,7 @@ describe("appendFindings", () => {
       const parsed = parseLine(line);
       expect(parsed.sessionId).toBe("20260314-100000");
       expect(parsed.round).toBe(1);
-      expect(parsed.project).toBe("/Users/kailash/code/myapp");
+      expect(parsed.project).toBe("/tmp/test-project");
     }
 
     // Each has a distinct finding.id
@@ -164,7 +164,7 @@ describe("appendFindings", () => {
       findings: [],
       sessionId: "20260314-100000",
       round: 1,
-      project: "/Users/kailash/code/myapp",
+      project: "/tmp/test-project",
       baseDir: TEST_DIR,
     });
 
@@ -181,7 +181,7 @@ describe("appendFindings", () => {
       findings: [],
       sessionId: "20260314-100000",
       round: 1,
-      project: "/Users/kailash/code/myapp",
+      project: "/tmp/test-project",
       baseDir: TEST_DIR,
     });
 
@@ -203,7 +203,7 @@ describe("appendFindings", () => {
       findings: round1Findings,
       sessionId: "20260314-100000",
       round: 1,
-      project: "/Users/kailash/code/myapp",
+      project: "/tmp/test-project",
       baseDir: TEST_DIR,
     });
 
@@ -219,7 +219,7 @@ describe("appendFindings", () => {
       findings: round2Findings,
       sessionId: "20260314-100000",
       round: 2,
-      project: "/Users/kailash/code/myapp",
+      project: "/tmp/test-project",
       baseDir: TEST_DIR,
     });
 
@@ -247,7 +247,7 @@ describe("appendFindings", () => {
       findings: [finding],
       sessionId: "20260314-100000",
       round: 2,
-      project: "/Users/kailash/code/myapp",
+      project: "/tmp/test-project",
       baseDir: TEST_DIR,
     });
 
@@ -267,7 +267,7 @@ describe("appendFindings", () => {
       findings: [finding],
       sessionId: "20260314-100000",
       round: 1,
-      project: "/Users/kailash/code/myapp",
+      project: "/tmp/test-project",
       baseDir: TEST_DIR,
     });
 
@@ -275,7 +275,7 @@ describe("appendFindings", () => {
       findings: [finding],
       sessionId: "20260314-100000",
       round: 1,
-      project: "/Users/kailash/code/myapp",
+      project: "/tmp/test-project",
       baseDir: TEST_DIR,
     });
 
@@ -302,7 +302,7 @@ describe("appendFindings", () => {
       findings: [finding],
       sessionId: "20260314-100000",
       round: 1,
-      project: "/Users/kailash/code/myapp",
+      project: "/tmp/test-project",
       baseDir: TEST_DIR,
     });
 
@@ -329,7 +329,7 @@ describe("appendFindings", () => {
       findings: [finding],
       sessionId: "20260314-100000",
       round: 1,
-      project: "/Users/kailash/code/myapp",
+      project: "/tmp/test-project",
       baseDir: TEST_DIR,
     });
 
@@ -357,7 +357,7 @@ describe("appendFindings", () => {
           findings: findings1,
           sessionId: "20260314-100000",
           round: 1,
-          project: "/Users/kailash/code/project1",
+          project: "/tmp/test-project1",
           baseDir: TEST_DIR,
         }),
       ),
@@ -366,7 +366,7 @@ describe("appendFindings", () => {
           findings: findings2,
           sessionId: "20260314-100001",
           round: 1,
-          project: "/Users/kailash/code/project2",
+          project: "/tmp/test-project2",
           baseDir: TEST_DIR,
         }),
       ),
@@ -392,7 +392,7 @@ describe("backfillResolved", () => {
       ],
       sessionId: "20260314-100000",
       round: 1,
-      project: "/Users/kailash/code/myapp",
+      project: "/tmp/test-project",
       baseDir: TEST_DIR,
     });
 
@@ -421,7 +421,7 @@ describe("backfillResolved", () => {
       findings: [makeFinding({ id: "r1-f-001" })],
       sessionId: "20260314-100000",
       round: 1,
-      project: "/Users/kailash/code/myapp",
+      project: "/tmp/test-project",
       baseDir: TEST_DIR,
     });
 
@@ -430,7 +430,7 @@ describe("backfillResolved", () => {
       findings: [makeFinding({ id: "r1-f-001" })],
       sessionId: "20260315-120000",
       round: 1,
-      project: "/Users/kailash/code/myapp",
+      project: "/tmp/test-project",
       baseDir: TEST_DIR,
     });
 
@@ -466,7 +466,7 @@ describe("backfillResolved", () => {
       ],
       sessionId: "20260314-100000",
       round: 1,
-      project: "/Users/kailash/code/myapp",
+      project: "/tmp/test-project",
       baseDir: TEST_DIR,
     });
 
@@ -502,7 +502,7 @@ describe("backfillResolved", () => {
       findings: [makeFinding({ id: "r1-f-001" })],
       sessionId: "20260314-100000",
       round: 1,
-      project: "/Users/kailash/code/myapp",
+      project: "/tmp/test-project",
       baseDir: TEST_DIR,
     });
 
@@ -545,7 +545,7 @@ describe("backfillResolved", () => {
       ],
       sessionId: "20260314-100000",
       round: 1,
-      project: "/Users/kailash/code/myapp",
+      project: "/tmp/test-project",
       baseDir: TEST_DIR,
     });
 
@@ -579,7 +579,7 @@ describe("backfillResolved", () => {
       findings: [makeFinding({ id: "r1-f-001" })],
       sessionId: "20260314-100000",
       round: 1,
-      project: "/Users/kailash/code/myapp",
+      project: "/tmp/test-project",
       baseDir: TEST_DIR,
     });
 
@@ -612,12 +612,12 @@ describe("backfillResolved", () => {
       findings: [makeFinding({ id: "r1-f-001" })],
       sessionId: "20260314-100000",
       round: 1,
-      project: "/Users/kailash/code/myapp",
+      project: "/tmp/test-project",
       baseDir: TEST_DIR,
     });
 
     // Manually append a malformed (truncated JSON) line
-    const malformedLine = '{"timestamp":"2026-03-14T10:00:00.000Z","project":"/Users/kailash/code/myapp","sessionId":"20260314-100000","round":1,"finding":{"id":"r1-f-002"';
+    const malformedLine = '{"timestamp":"2026-03-14T10:00:00.000Z","project":"/tmp/test-project","sessionId":"20260314-100000","round":1,"finding":{"id":"r1-f-002"';
     appendFileSync(join(TEST_DIR, "findings.jsonl"), malformedLine + "\n");
 
     // Verify file has 2 lines before backfill
@@ -654,7 +654,7 @@ describe("backfillResolved", () => {
       ],
       sessionId: "20260314-100000",
       round: 1,
-      project: "/Users/kailash/code/myapp",
+      project: "/tmp/test-project",
       baseDir: TEST_DIR,
     });
 

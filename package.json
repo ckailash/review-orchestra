@@ -12,7 +12,8 @@
     "lint": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "eval": "tsx evals/run-eval.ts"
+    "eval": "tsx evals/run-eval.ts",
+    "prepublishOnly": "npm run build"
   },
   "keywords": [
     "code-review",
@@ -21,6 +22,20 @@
     "orchestration"
   ],
   "license": "MIT",
+  "files": [
+    "dist/",
+    "config/",
+    "prompts/",
+    "schemas/",
+    "skill/",
+    "README.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ckailash/review-orchestra.git"
+  },
+  "homepage": "https://github.com/ckailash/review-orchestra",
   "engines": {
     "node": ">=20"
   },
