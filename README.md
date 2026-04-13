@@ -292,22 +292,6 @@ Or add a generic reviewer via config — any command with a `{prompt}` placehold
 
 The consolidator normalizes different output formats into the standard findings schema. Custom reviewers registered in config are handled by the `GenericReviewer` class, which executes the command and parses the output.
 
-## Decisions
-
-| Decision | Choice | Rationale |
-|---|---|---|
-| Language | TypeScript | Target audience is devs. Types, state machines, JSON handling all better in TS. |
-| Mode | Supervised only | User controls the loop — better fix accuracy, no autonomous mistakes. |
-| Fixer | Orchestrator Claude | Wrote the code, has full context, can interact with user mid-fix. |
-| Consolidation | CLI (deterministic code) | Dedup, P-level, pre-existing tagging. No LLM needed. |
-| Session persistence | Session-based state with worktree hashes | Supports multi-invocation supervised loop. Round-scoped finding IDs prevent collisions. |
-| Finding IDs | Round-scoped (`r1-f-001`) | Prevents collisions across review rounds. User can reference specific findings. |
-| Finding comparison | LLM-based semantic matching (haiku) with heuristic fallback | Handles renamed files, shifted line numbers, reworded descriptions. Haiku is fast/cheap. Heuristic fallback ensures reliability. |
-| Arguments | Natural language | Idiomatic for Claude Code skills. No `--flags`. LLM parses intent. |
-| Severity | Two-axis (confidence × impact) → P0–P3 | Familiar P-levels as shorthand, nuanced classification underneath. |
-| Pre-existing | Tag and exclude from recommendations | Reported but don't block. User can override in supervised mode. |
-| Default threshold | P1 | Critical + functional issues recommended for fixing. Users extend via natural language. |
-
 ## Tests and evals
 
 ```bash
