@@ -40,12 +40,12 @@ export function binaryExists(binary: string): boolean {
 // All return CheckResult. Pure reads, no side effects.
 
 /**
- * Check that the current Node.js version is >= 20.
+ * Check that the current Node.js version is >= 22.
  */
 export function checkNodeVersion(): CheckResult {
   const version = process.version;
   const major = parseInt(version.slice(1).split(".")[0], 10);
-  if (major >= 20) {
+  if (major >= 22) {
     return {
       name: "node-version",
       status: "pass",
@@ -55,8 +55,8 @@ export function checkNodeVersion(): CheckResult {
   return {
     name: "node-version",
     status: "fail",
-    message: `Node ${version} — requires >= 20`,
-    remediation: "Install Node.js 20 or later: https://nodejs.org/",
+    message: `Node ${version} — requires >= 22`,
+    remediation: "Install Node.js 22 or later: https://nodejs.org/",
   };
 }
 

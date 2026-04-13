@@ -62,7 +62,7 @@ function mergeConfig(base: Config, parsed: Record<string, unknown>): Config {
   return {
     reviewers,
     thresholds: { ...base.thresholds, ...(parsed.thresholds as Partial<Config["thresholds"]>) },
-    findingComparison: { ...base.findingComparison!, ...(parsed.findingComparison as Partial<FindingComparisonConfig>) },
+    findingComparison: { ...DEFAULT_FINDING_COMPARISON_CONFIG, ...base.findingComparison, ...(parsed.findingComparison as Partial<FindingComparisonConfig>) },
   };
 }
 

@@ -401,6 +401,7 @@ describe("backfillResolved", () => {
       resolvedFindings: [makeFinding({ id: "r1-f-001" })],
       sessionId: "20260314-100000",
       resolvedInRound: 2,
+      project: "/tmp/test-project",
       baseDir: TEST_DIR,
     });
 
@@ -439,6 +440,7 @@ describe("backfillResolved", () => {
       resolvedFindings: [makeFinding({ id: "r1-f-001" })],
       sessionId: "20260314-100000",
       resolvedInRound: 2,
+      project: "/tmp/test-project",
       baseDir: TEST_DIR,
     });
 
@@ -476,6 +478,7 @@ describe("backfillResolved", () => {
       resolvedFindings: [makeFinding({ id: "r1-f-002" })],
       sessionId: "20260314-100000",
       resolvedInRound: 2,
+      project: "/tmp/test-project",
       baseDir: TEST_DIR,
     });
 
@@ -512,6 +515,7 @@ describe("backfillResolved", () => {
       resolvedFindings: [],
       sessionId: "20260314-100000",
       resolvedInRound: 2,
+      project: "/tmp/test-project",
       baseDir: TEST_DIR,
     });
 
@@ -526,6 +530,7 @@ describe("backfillResolved", () => {
         resolvedFindings: [makeFinding({ id: "r1-f-001" })],
         sessionId: "20260314-100000",
         resolvedInRound: 2,
+        project: "/tmp/test-project",
         baseDir: TEST_DIR,
       }),
     ).not.toThrow();
@@ -557,6 +562,7 @@ describe("backfillResolved", () => {
       ],
       sessionId: "20260314-100000",
       resolvedInRound: 3,
+      project: "/tmp/test-project",
       baseDir: TEST_DIR,
     });
 
@@ -588,6 +594,7 @@ describe("backfillResolved", () => {
       resolvedFindings: [makeFinding({ id: "r1-f-001" })],
       sessionId: "20260314-100000",
       resolvedInRound: 2,
+      project: "/tmp/test-project",
       baseDir: TEST_DIR,
     });
 
@@ -596,6 +603,7 @@ describe("backfillResolved", () => {
       resolvedFindings: [makeFinding({ id: "r1-f-001" })],
       sessionId: "20260314-100000",
       resolvedInRound: 3,
+      project: "/tmp/test-project",
       baseDir: TEST_DIR,
     });
 
@@ -630,6 +638,7 @@ describe("backfillResolved", () => {
         resolvedFindings: [makeFinding({ id: "r1-f-001" })],
         sessionId: "20260314-100000",
         resolvedInRound: 2,
+        project: "/tmp/test-project",
         baseDir: TEST_DIR,
       }),
     ).not.toThrow();
@@ -666,6 +675,7 @@ describe("backfillResolved", () => {
       ],
       sessionId: "20260314-100000",
       resolvedInRound: 2,
+      project: "/tmp/test-project",
       baseDir: TEST_DIR,
     });
 
@@ -679,6 +689,7 @@ describe("backfillResolved", () => {
       ],
       sessionId: "20260314-100000",
       resolvedInRound: 3,
+      project: "/tmp/test-project",
       baseDir: TEST_DIR,
     });
 

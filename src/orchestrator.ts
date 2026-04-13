@@ -79,7 +79,11 @@ export class Orchestrator {
 
       if (recovery.isRecovery && recovery.phase === "consolidating") {
         // Crash during consolidation — resume with already-saved review data
-        round = this.state.getCurrentRound()!;
+        const currentRound = this.state.getCurrentRound();
+        if (!currentRound) {
+          throw new Error("Recovery phase 'consolidating' requires an active round but none found — session state may be corrupted. Run `review-orchestra reset`.");
+        }
+        round = currentRound;
         this.callbacks.onRoundStart?.(round.number);
 
         // Gather findings from saved reviews
@@ -99,7 +103,11 @@ export class Orchestrator {
         log(`review complete (consolidation ${(consolElapsed / 1000).toFixed(1)}s)`);
       } else if (recovery.isRecovery && recovery.phase === "reviewing") {
         // Crash during reviewing — resume, skip completed reviewers
-        round = this.state.getCurrentRound()!;
+        const currentRound = this.state.getCurrentRound();
+        if (!currentRound) {
+          throw new Error("Recovery phase 'reviewing' requires an active round but none found — session state may be corrupted. Run `review-orchestra reset`.");
+        }
+        round = currentRound;
         this.callbacks.onRoundStart?.(round.number);
 
         const completedSet = new Set(recovery.completedReviewers ?? []);
@@ -199,6 +207,7 @@ export class Orchestrator {
             resolvedFindings,
             sessionId: sessionState.sessionId,
             resolvedInRound: round.number,
+            project: process.cwd(),
           });
         } catch (err) {
           log(`warning: failed to backfill resolved findings: ${err instanceof Error ? err.message : String(err)}`);

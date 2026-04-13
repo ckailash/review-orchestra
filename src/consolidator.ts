@@ -178,13 +178,14 @@ export function consolidate(findings: Finding[], diff: string): Finding[] {
   const semanticDeduped = fuzzyDeduplicate(exactDeduped);
 
   // Tag pre-existing
-  // Findings with line=0 have unknown location — treat as NOT pre-existing
+  // Findings in files not in the diff are always pre-existing
+  // Findings with line=0 and file in diff have unknown location — treat as NOT pre-existing
   const result: Finding[] = [];
   for (const finding of semanticDeduped) {
+    const fileInDiff = diffFiles.has(finding.file);
     const inDiff =
-      finding.line === 0 ||
-      (diffFiles.has(finding.file) &&
-        isInDiffHunks(finding.file, finding.line, hunks));
+      fileInDiff &&
+      (finding.line === 0 || isInDiffHunks(finding.file, finding.line, hunks));
 
     result.push({
       ...finding,

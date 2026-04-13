@@ -77,6 +77,12 @@ function hasScopeBaseChanged(
   if (existingScope.description !== newScope.description) {
     return true;
   }
+  // Detect path-filter changes between rounds
+  const existingFiles = [...(existingScope.files ?? [])].sort().join("|");
+  const newFiles = [...(newScope.files ?? [])].sort().join("|");
+  if (existingFiles !== newFiles) {
+    return true;
+  }
   return false;
 }
 
@@ -279,8 +285,13 @@ export class SessionManager {
           }
           // Can't read lock file — treat as stale
         }
-        // Stale lock — overwrite it
-        writeFileSync(this.lockFile, String(process.pid));
+        // Stale lock — remove it and try to reacquire atomically
+        try {
+          unlinkSync(this.lockFile);
+        } catch {
+          // Another process may have already removed it — ignore
+        }
+        writeFileSync(this.lockFile, String(process.pid), { flag: "wx" });
       } else {
         throw err;
       }

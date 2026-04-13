@@ -175,8 +175,9 @@ export async function runSetup(packageRoot: string): Promise<void> {
       failedCheckNames.add(result.name);
     }
 
-    // Attempt fix for fixable checks
-    if (result.status !== "pass" && entry.fixable) {
+    // Attempt fix for fixable checks that failed or warned
+    // (gitignore warns when entry is missing; skill-symlink fails when broken)
+    if ((result.status === "fail" || result.status === "warn") && entry.fixable) {
       const fixed = attemptFix(entry.fixable, packageRoot, entry.label);
       if (fixed) {
         fixCount++;

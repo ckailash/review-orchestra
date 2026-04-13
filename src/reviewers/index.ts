@@ -45,6 +45,13 @@ class GenericReviewer implements Reviewer {
 
     const { bin, args: templateArgs } = parseCommand(this.config.command);
     const hasPromptPlaceholder = templateArgs.some(a => a.includes("{prompt}"));
+    // ARG_MAX is typically 256KB-2MB depending on OS; keep a conservative margin
+    const MAX_PROMPT_IN_ARGV = 100_000;
+    if (hasPromptPlaceholder && fullPrompt.length > MAX_PROMPT_IN_ARGV) {
+      throw new Error(
+        `${this.name}: prompt too large for {prompt} placeholder (${fullPrompt.length} bytes, limit ${MAX_PROMPT_IN_ARGV}). Configure the reviewer to read from stdin instead (remove {prompt} from the command).`
+      );
+    }
     const args = hasPromptPlaceholder
       ? templateArgs.map(a => a.replace("{prompt}", fullPrompt))
       : templateArgs;

@@ -137,17 +137,17 @@ describe("checkNodeVersion", () => {
     expect(result.message).toContain("v22.3.0");
   });
 
-  it("returns pass for Node exactly 20", () => {
-    setNodeVersion("v20.0.0");
+  it("returns pass for Node exactly 22", () => {
+    setNodeVersion("v22.0.0");
     const result = checkNodeVersion();
     expect(result.status).toBe("pass");
   });
 
-  it("returns fail for Node < 20", () => {
-    setNodeVersion("v18.17.0");
+  it("returns fail for Node < 22", () => {
+    setNodeVersion("v20.17.0");
     const result = checkNodeVersion();
     expect(result.status).toBe("fail");
-    expect(result.message).toContain("18");
+    expect(result.message).toContain("20");
     expect(result.remediation).toBeDefined();
   });
 
@@ -157,8 +157,8 @@ describe("checkNodeVersion", () => {
     expect(result.status).toBe("fail");
   });
 
-  it("returns pass for Node 21+", () => {
-    setNodeVersion("v21.1.0");
+  it("returns pass for Node 24+", () => {
+    setNodeVersion("v24.1.0");
     const result = checkNodeVersion();
     expect(result.status).toBe("pass");
   });

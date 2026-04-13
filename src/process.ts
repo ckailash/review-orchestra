@@ -106,7 +106,7 @@ export function spawnWithStreaming(opts: SpawnOptions): Promise<string> {
     }
     child.stdin?.end();
 
-    child.on("close", (code) => {
+    child.on("close", (code, signal) => {
       cleanup();
       // Flush remaining stderr
       if (stderrBuffer.trim()) {
@@ -115,6 +115,8 @@ export function spawnWithStreaming(opts: SpawnOptions): Promise<string> {
       const stdout = Buffer.concat(stdoutChunks).toString("utf-8");
       if (code === 0) {
         resolve(stdout);
+      } else if (signal) {
+        reject(new Error(`${label} killed by signal ${signal}`));
       } else {
         reject(new Error(`${label} exited with code ${code}`));
       }

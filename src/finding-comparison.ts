@@ -209,11 +209,16 @@ async function compareFindingsViaLLM(
   // Build prompt
   const prompt = buildComparisonPrompt(previousSummaries, currentSummaries);
 
-  // Spawn claude CLI
+  // Spawn claude CLI with nested-session env cleared
+  const env = { ...process.env };
+  delete env.CLAUDECODE;
+  delete env.CLAUDE_CODE_ENTRYPOINT;
+  delete env.CLAUDE_CODE_SSE_PORT;
   const output = await spawnWithStreaming({
     bin: "claude",
     args: ["-p", "-", "--output-format", "text", "--model", config.model],
     input: prompt,
+    env,
     label: "finding-comparison",
     inactivityTimeout: config.timeoutMs,
     catastrophicTimeout: config.timeoutMs * 2,

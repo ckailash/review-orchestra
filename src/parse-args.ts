@@ -89,14 +89,15 @@ export function parseArgs(input: string): ParsedArgs {
     remaining = remaining.replace(/fix\s+quality\s*(issues?)?\s*(too)?/gi, "").trim();
   }
 
-  // Reviewer selection: "skip codex", "skip codex skip gemini", "only use claude"
+  // Reviewer selection: "skip codex", "only use claude", "only claude"
+  // Constrained to avoid greedy matches — require end-of-string or whitespace boundary
   let skipMatch;
-  while ((skipMatch = remaining.match(/skip\s+(\w+)/i))) {
+  while ((skipMatch = remaining.match(/\bskip\s+(\w+)(?=\s|$)/i))) {
     result.disabledReviewers.push(skipMatch[1].toLowerCase());
     remaining = remaining.replace(skipMatch[0], "").trim();
   }
 
-  const onlyMatch = remaining.match(/only\s+(?:use\s+)?(\w+)/i);
+  const onlyMatch = remaining.match(/\bonly\s+(?:use\s+)?(\w+)(?=\s|$)/i);
   if (onlyMatch) {
     result.onlyReviewer = onlyMatch[1].toLowerCase();
     remaining = remaining.replace(onlyMatch[0], "").trim();

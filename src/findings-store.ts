@@ -26,6 +26,7 @@ export interface BackfillResolvedOptions {
   resolvedFindings: Finding[];
   sessionId: string;
   resolvedInRound: number;
+  project: string;
   baseDir?: string;
 }
 
@@ -78,7 +79,7 @@ export function appendFindings(options: AppendFindingsOptions): void {
  * Already-resolved entries (resolved_in_round !== null) are skipped.
  */
 export function backfillResolved(options: BackfillResolvedOptions): void {
-  const { resolvedFindings, sessionId, resolvedInRound } = options;
+  const { resolvedFindings, sessionId, resolvedInRound, project } = options;
   const baseDir = options.baseDir ?? DEFAULT_BASE_DIR;
 
   if (resolvedFindings.length === 0) return;
@@ -105,6 +106,7 @@ export function backfillResolved(options: BackfillResolvedOptions): void {
 
     if (
       entry.sessionId === sessionId &&
+      entry.project === project &&
       resolvedIds.has(entry.finding.id) &&
       entry.resolved_in_round === null
     ) {

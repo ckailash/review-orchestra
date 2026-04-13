@@ -8,7 +8,6 @@ import {
   type OrchestratorCallbacks,
 } from "./orchestrator";
 import { parseArgs, detectSubcommand } from "./parse-args";
-import { SessionManager } from "./state";
 import { checkStale } from "./worktree-hash";
 import { runSetup as runSetupCmd } from "./setup.js";
 import { runDoctor as runDoctorCmd } from "./doctor.js";
@@ -29,10 +28,11 @@ async function runReview(remaining: string[]): Promise<void> {
     overrides.thresholds = { stopAt: args.stopAt };
   }
 
+  const baseConfig = loadConfig();
+
   if (args.disabledReviewers.length > 0 || args.onlyReviewer || Object.keys(args.models).length > 0) {
     overrides.reviewers = {};
     if (args.onlyReviewer) {
-      const baseConfig = loadConfig();
       for (const name of Object.keys(baseConfig.reviewers)) {
         if (name !== args.onlyReviewer) {
           overrides.reviewers![name] = { enabled: false };
@@ -47,7 +47,7 @@ async function runReview(remaining: string[]): Promise<void> {
     }
   }
 
-  const config = loadConfig(overrides);
+  const config = Object.keys(overrides).length > 0 ? loadConfig(overrides) : baseConfig;
 
   // Detect scope
   console.error("[review-orchestra] Detecting scope...");
