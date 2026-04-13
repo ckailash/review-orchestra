@@ -17,6 +17,16 @@ vi.mock("../src/findings-store", () => ({
   backfillResolved: vi.fn(),
 }));
 
+// Mock preflight so tests don't require actual claude/codex binaries
+vi.mock("../src/preflight", () => ({
+  runPreflight: vi.fn(() => ({
+    ok: true,
+    errors: [],
+    warnings: [],
+    disabledReviewers: [],
+  })),
+}));
+
 // Mock fs.readFileSync for the review prompt
 vi.mock("fs", async () => {
   const actual = await vi.importActual("fs");
