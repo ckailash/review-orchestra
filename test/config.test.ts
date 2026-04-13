@@ -1,8 +1,16 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
+import { homedir } from "os";
 import { loadConfig, DEFAULT_CONFIG, DEFAULT_FINDING_COMPARISON_CONFIG } from "../src/config";
 import type { Config } from "../src/types";
 
-const mockConfigOverride = vi.hoisted(() => ({ json: null as string | null }));
+const globalConfigPath = `${homedir()}/.review-orchestra/config.json`;
+const projectConfigPath = `${process.cwd()}/.review-orchestra/config.json`;
+
+const mockConfigOverride = vi.hoisted(() => ({
+  json: null as string | null,
+  globalJson: null as string | null,
+  projectJson: null as string | null,
+}));
 
 vi.mock("fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("fs")>();
@@ -10,8 +18,14 @@ vi.mock("fs", async (importOriginal) => {
     ...actual,
     readFileSync: (...args: unknown[]) => {
       const path = args[0] as string;
-      if (mockConfigOverride.json !== null && typeof path === "string" && path.includes("default.json")) {
+      if (mockConfigOverride.json !== null && path.includes("default.json")) {
         return mockConfigOverride.json;
+      }
+      if (path === globalConfigPath && mockConfigOverride.globalJson !== null) {
+        return mockConfigOverride.globalJson;
+      }
+      if (path === projectConfigPath && mockConfigOverride.projectJson !== null) {
+        return mockConfigOverride.projectJson;
       }
       return actual.readFileSync.apply(null, args as Parameters<typeof actual.readFileSync>);
     },
@@ -168,5 +182,89 @@ describe("findingComparison config", () => {
       findingComparison: { fallback: "error" },
     });
     expect(config.findingComparison!.fallback).toBe("error");
+  });
+});
+
+describe("config cascade (global → project)", () => {
+  afterEach(() => {
+    mockConfigOverride.globalJson = null;
+    mockConfigOverride.projectJson = null;
+  });
+
+  it("loads global config from ~/.review-orchestra/config.json", () => {
+    mockConfigOverride.globalJson = JSON.stringify({
+      thresholds: { stopAt: "p2" },
+    });
+    const config = loadConfig();
+    expect(config.thresholds.stopAt).toBe("p2");
+  });
+
+  it("loads project config from .review-orchestra/config.json", () => {
+    mockConfigOverride.projectJson = JSON.stringify({
+      thresholds: { stopAt: "p3" },
+    });
+    const config = loadConfig();
+    expect(config.thresholds.stopAt).toBe("p3");
+  });
+
+  it("project config overrides global config", () => {
+    mockConfigOverride.globalJson = JSON.stringify({
+      thresholds: { stopAt: "p2" },
+    });
+    mockConfigOverride.projectJson = JSON.stringify({
+      thresholds: { stopAt: "p0" },
+    });
+    const config = loadConfig();
+    expect(config.thresholds.stopAt).toBe("p0");
+  });
+
+  it("global config can disable a reviewer, project config re-enables it", () => {
+    mockConfigOverride.globalJson = JSON.stringify({
+      reviewers: { codex: { enabled: false } },
+    });
+    mockConfigOverride.projectJson = JSON.stringify({
+      reviewers: { codex: { enabled: true } },
+    });
+    const config = loadConfig();
+    expect(config.reviewers.codex.enabled).toBe(true);
+  });
+
+  it("global config can add a custom reviewer", () => {
+    mockConfigOverride.globalJson = JSON.stringify({
+      reviewers: { gemini: { enabled: true, command: "gemini review", outputFormat: "json" } },
+    });
+    const config = loadConfig();
+    expect(config.reviewers.gemini).toBeDefined();
+    expect(config.reviewers.gemini.enabled).toBe(true);
+    expect(config.reviewers.claude.enabled).toBe(true);
+  });
+
+  it("programmatic overrides take precedence over project config", () => {
+    mockConfigOverride.projectJson = JSON.stringify({
+      thresholds: { stopAt: "p3" },
+    });
+    const config = loadConfig({ thresholds: { stopAt: "p0" } });
+    expect(config.thresholds.stopAt).toBe("p0");
+  });
+
+  it("ignores malformed global config and continues cascade", () => {
+    mockConfigOverride.globalJson = "{invalid json";
+    mockConfigOverride.projectJson = JSON.stringify({
+      thresholds: { stopAt: "p2" },
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const config = loadConfig();
+    expect(config.thresholds.stopAt).toBe("p2");
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("invalid JSON"));
+    errorSpy.mockRestore();
+  });
+
+  it("ignores malformed project config", () => {
+    mockConfigOverride.projectJson = "{bad";
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const config = loadConfig();
+    expect(config.thresholds.stopAt).toBe("p1"); // falls back to default
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("invalid JSON"));
+    errorSpy.mockRestore();
   });
 });

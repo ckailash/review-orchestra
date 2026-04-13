@@ -1,5 +1,6 @@
 import { readFileSync } from "fs";
 import { dirname, join } from "path";
+import { homedir } from "os";
 import { fileURLToPath } from "url";
 import type { Config, FindingComparisonConfig, ReviewerConfig } from "./types";
 
@@ -43,33 +44,56 @@ export const DEFAULT_CONFIG: Config = deepFreeze({
   findingComparison: DEFAULT_FINDING_COMPARISON_CONFIG,
 });
 
-function loadBaseConfig(): Config {
-  try {
-    const configPath = join(__dirname, "..", "config", "default.json");
-    const parsed = JSON.parse(readFileSync(configPath, "utf-8"));
-
-    const reviewers = { ...structuredClone(DEFAULT_CONFIG.reviewers) };
-    if (parsed.reviewers) {
-      for (const [name, partial] of Object.entries(parsed.reviewers)) {
-        if (reviewers[name]) {
-          reviewers[name] = { ...reviewers[name], ...(partial as Partial<ReviewerConfig>) };
-        } else {
-          reviewers[name] = { enabled: false, command: "", outputFormat: "json", ...(partial as Partial<ReviewerConfig>) };
-        }
+function mergeConfig(base: Config, parsed: Record<string, unknown>): Config {
+  const reviewers: Record<string, ReviewerConfig> = {};
+  for (const [name, cfg] of Object.entries(base.reviewers)) {
+    reviewers[name] = { ...cfg };
+  }
+  if (parsed.reviewers) {
+    for (const [name, partial] of Object.entries(parsed.reviewers as Record<string, Partial<ReviewerConfig>>)) {
+      if (reviewers[name]) {
+        reviewers[name] = { ...reviewers[name], ...partial };
+      } else {
+        reviewers[name] = { enabled: false, command: "", outputFormat: "json", ...partial };
       }
     }
+  }
 
-    return {
-      reviewers,
-      thresholds: { ...DEFAULT_CONFIG.thresholds, ...parsed.thresholds },
-      findingComparison: { ...DEFAULT_FINDING_COMPARISON_CONFIG, ...parsed.findingComparison },
-    };
+  return {
+    reviewers,
+    thresholds: { ...base.thresholds, ...(parsed.thresholds as Partial<Config["thresholds"]>) },
+    findingComparison: { ...base.findingComparison!, ...(parsed.findingComparison as Partial<FindingComparisonConfig>) },
+  };
+}
+
+function tryLoadJson(path: string, label: string): Record<string, unknown> | null {
+  try {
+    return JSON.parse(readFileSync(path, "utf-8"));
   } catch (err) {
     if (err instanceof SyntaxError) {
-      console.error("[review-orchestra] warning: config/default.json has invalid JSON, using defaults");
+      console.error(`[review-orchestra] warning: ${label} has invalid JSON, skipping`);
     }
-    return structuredClone(DEFAULT_CONFIG);
+    return null;
   }
+}
+
+function loadBaseConfig(): Config {
+  // 1. Package defaults
+  let config = structuredClone(DEFAULT_CONFIG);
+
+  // 2. Package config/default.json (overrides hardcoded defaults)
+  const packageConfig = tryLoadJson(join(__dirname, "..", "config", "default.json"), "config/default.json");
+  if (packageConfig) config = mergeConfig(config, packageConfig);
+
+  // 3. Global user config: ~/.review-orchestra/config.json
+  const globalConfig = tryLoadJson(join(homedir(), ".review-orchestra", "config.json"), "~/.review-orchestra/config.json");
+  if (globalConfig) config = mergeConfig(config, globalConfig);
+
+  // 4. Project config: .review-orchestra/config.json (cwd)
+  const projectConfig = tryLoadJson(join(process.cwd(), ".review-orchestra", "config.json"), ".review-orchestra/config.json");
+  if (projectConfig) config = mergeConfig(config, projectConfig);
+
+  return config;
 }
 
 export function loadConfig(
@@ -81,21 +105,5 @@ export function loadConfig(
 ): Config {
   const base = loadBaseConfig();
   if (!overrides) return base;
-
-  const reviewers = { ...base.reviewers };
-  if (overrides.reviewers) {
-    for (const [name, partial] of Object.entries(overrides.reviewers)) {
-      if (reviewers[name]) {
-        reviewers[name] = { ...reviewers[name], ...partial };
-      } else {
-        reviewers[name] = { enabled: false, command: "", outputFormat: "json", ...partial };
-      }
-    }
-  }
-
-  return {
-    reviewers,
-    thresholds: { ...base.thresholds, ...overrides.thresholds },
-    findingComparison: { ...base.findingComparison!, ...overrides.findingComparison },
-  };
+  return mergeConfig(base, overrides as Record<string, unknown>);
 }

@@ -33,7 +33,7 @@ After receiving findings, the orchestrator Claude (who wrote the code and has fu
 
 ### Prerequisites
 
-- Node.js >= 20
+- Node.js >= 22
 - [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) (`claude`)
 - [Codex CLI](https://github.com/openai/codex) (`codex`) — optional, can be disabled
 

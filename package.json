@@ -38,7 +38,7 @@
   },
   "homepage": "https://github.com/ckailash/review-orchestra",
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
