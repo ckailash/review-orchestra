@@ -1,0 +1,27 @@
+diff --git a/src/api.ts b/src/api.ts
+index 3a397d5..69a2440 100644
+--- a/src/api.ts
++++ b/src/api.ts
+@@ -2,18 +2,16 @@ import { Pool } from "pg";
+ 
+ const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+ 
+-// Bug #1: SQL injection in getUser
++// Bug #1: FIXED — now uses parameterized query
+ export async function getUser(userId: string) {
+-  const result = await pool.query(`SELECT * FROM users WHERE id = '${userId}'`);
++  const result = await pool.query("SELECT * FROM users WHERE id = $1", [userId]);
+   return result.rows[0];
+ }
+ 
+-// Bug #2: Hardcoded secret
+-const API_SECRET = "hardcoded_api_key_12345";
+-
++// Bug #2: FIXED — secret moved to environment variable
+ export function getApiConfig() {
+   return {
+     endpoint: "https://api.example.com",
+-    secret: API_SECRET,
++    secret: process.env.API_SECRET,
+   };
+ }

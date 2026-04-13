@@ -1,0 +1,30 @@
+{
+  "fixture": "multi-round-all-resolved",
+  "rounds": [
+    {
+      "expected_findings": [
+        {
+          "description": "SQL injection in getUser()",
+          "expected_impact": "critical",
+          "expected_confidence": "verified",
+          "expected_status": "new",
+          "expected_pre_existing": false
+        },
+        {
+          "description": "Hardcoded API secret",
+          "expected_impact": "critical",
+          "expected_confidence": "verified",
+          "expected_status": "new",
+          "expected_pre_existing": false
+        }
+      ]
+    },
+    {
+      "expected_findings": [],
+      "expected_resolved": [
+        { "description": "SQL injection in getUser()", "expected_id_prefix": "r1-f-" },
+        { "description": "Hardcoded API secret", "expected_id_prefix": "r1-f-" }
+      ]
+    }
+  ]
+}

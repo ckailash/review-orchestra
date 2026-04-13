@@ -229,6 +229,8 @@ review-orchestra/
 │   │   ├── prompt.ts                 # Review prompt builder
 │   │   └── index.ts                  # Registry / factory
 │   ├── consolidator.ts              # Dedup, classify, merge findings
+│   ├── findings-store.ts            # Persistent cross-session finding storage (~/.review-orchestra/findings.jsonl)
+│   ├── fuzzy-match.ts               # Fuzzy matching for cross-reviewer dedup (tokenize, Jaccard similarity, isFuzzyMatch)
 │   ├── scope.ts                     # Diff scope auto-detection
 │   ├── config.ts                    # Configuration loading & defaults
 │   ├── types.ts                     # Shared types (Finding, Round, SessionState, ReviewResult, etc.)
@@ -239,6 +241,7 @@ review-orchestra/
 │   ├── parse-args.ts                # Natural language CLI argument parsing
 │   ├── process.ts                   # Process spawning with streaming
 │   ├── toolchain.ts                 # Project tech stack detection
+│   ├── progress.ts                  # Progress file (reviewer status during review, progress.json)
 │   ├── preflight.ts                 # Validates required binaries
 │   ├── checks.ts                    # Shared check functions for setup/doctor
 │   ├── setup.ts                     # Setup command (runs checks + fixes)

@@ -1,0 +1,27 @@
+diff --git a/src/api.ts b/src/api.ts
+--- a/src/api.ts
++++ b/src/api.ts
+@@ -1,9 +1,11 @@
++import { readFileSync } from "fs";
++import { join } from "path";
+ import { Pool } from "pg";
+
+ const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+
+-// Bug #1: SQL injection — will be FIXED between rounds
++// Bug #1: FIXED — now uses parameterized query
+ export async function getUser(userId: string) {
+-  const result = await pool.query(`SELECT * FROM users WHERE id = '${userId}'`);
++  const result = await pool.query("SELECT * FROM users WHERE id = $1", [userId]);
+   return result.rows[0];
+ }
+@@ -27,3 +29,9 @@ export function getDbConfig() {
+     password: DB_PASSWORD,
+   };
+ }
++
++// Bug #4 (NEW regression): Path traversal — user-controlled path joined unsafely
++export function exportUser(userId: string, filename: string) {
++  const filePath = join("/data/exports", filename);
++  return readFileSync(filePath, "utf-8");
++}

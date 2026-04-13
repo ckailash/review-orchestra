@@ -6,7 +6,7 @@ evals/results/
 .claude/projects/
 .claude/settings.local.json
 .claude/skills/
-.factory/validation/
+.factory/
 .claude/settings.json
 .DS_Store
 .env

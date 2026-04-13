@@ -8,9 +8,32 @@ export interface GoldenFinding {
   expected_confidence: string;
 }
 
-export interface GoldenFixture {
+// Single-round golden format (existing)
+export interface SingleRoundGolden {
   fixture: string;
   expected_findings: GoldenFinding[];
+}
+
+// Multi-round golden format
+export interface MultiRoundGoldenFinding extends GoldenFinding {
+  expected_status?: "new" | "persisting";
+  expected_pre_existing?: boolean;
+}
+
+export interface MultiRoundGoldenRound {
+  expected_findings: MultiRoundGoldenFinding[];
+  expected_resolved?: Array<{ description: string; expected_id_prefix?: string }>;
+}
+
+export interface MultiRoundGolden {
+  fixture: string;
+  rounds: MultiRoundGoldenRound[];
+}
+
+export type GoldenFixture = SingleRoundGolden | MultiRoundGolden;
+
+export function isMultiRoundGolden(g: GoldenFixture): g is MultiRoundGolden {
+  return "rounds" in g && Array.isArray((g as MultiRoundGolden).rounds);
 }
 
 export interface JudgeResult {
@@ -23,10 +46,31 @@ export interface JudgeResult {
   hallucinated: Finding[];
 }
 
+export interface CheckWithCoverage {
+  pass: boolean;
+  checked: number;
+  total: number;
+}
+
+export interface MultiRoundJudgeResult {
+  rounds: JudgeResult[];
+  resolved_matched: number;
+  resolved_total: number;
+  resolved_ids_exact: CheckWithCoverage;
+  status_correct: CheckWithCoverage;
+  pre_existing_correct: CheckWithCoverage;
+  persisting_ids_exact: CheckWithCoverage;
+  persisting_metadata_fresh: CheckWithCoverage;
+}
+
+export function isMultiRoundJudge(j: JudgeResult | MultiRoundJudgeResult): j is MultiRoundJudgeResult {
+  return "rounds" in j;
+}
+
 export async function judge(
   fixture: string,
   actualFindings: Finding[],
-  golden: GoldenFixture,
+  golden: SingleRoundGolden,
   judgeModel: string = "claude-sonnet-4-6"
 ): Promise<JudgeResult> {
   const prompt = buildJudgePrompt(actualFindings, golden);
@@ -48,7 +92,7 @@ export async function judge(
 
 export function buildJudgePrompt(
   actual: Finding[],
-  golden: GoldenFixture
+  golden: SingleRoundGolden
 ): string {
   return `You are evaluating a code review tool's output against expected findings.
 
@@ -100,7 +144,7 @@ export function parseJudgeOutput(
   fixture: string,
   raw: string,
   actual: Finding[],
-  golden: GoldenFixture
+  golden: SingleRoundGolden
 ): JudgeResult {
   try {
     const extracted = extractJson(raw);
@@ -188,7 +232,7 @@ export function parseJudgeOutput(
 export function fallbackJudge(
   fixture: string,
   actual: Finding[],
-  golden: GoldenFixture
+  golden: SingleRoundGolden
 ): JudgeResult {
   // Simple heuristic: match by keyword overlap
   const matched: { golden: GoldenFinding; actual: Finding }[] = [];
@@ -227,5 +271,145 @@ export function fallbackJudge(
     matched,
     missed,
     hallucinated,
+  };
+}
+
+/**
+ * Judge a multi-round eval. Each round's finding quality uses the standard
+ * judge() function. Cross-round checks (status, pre_existing, ID preservation,
+ * metadata freshness) are deterministic — no LLM needed.
+ *
+ * @param idMap - Maps golden finding descriptions to their actual round-1 IDs.
+ *               Used to assert exact ID preservation on persisting/resolved findings.
+ */
+export function judgeMultiRound(
+  roundResults: JudgeResult[],
+  golden: MultiRoundGolden,
+  actualResolvedFindings: Finding[][],
+  idMap: Record<string, string>,
+): MultiRoundJudgeResult {
+  let statusPass = true;
+  let statusChecked = 0;
+  let statusTotal = 0;
+
+  let preExistingPass = true;
+  let preExistingChecked = 0;
+  let preExistingTotal = 0;
+
+  let persistingIdsPass = true;
+  let persistingIdsChecked = 0;
+  let persistingIdsTotal = 0;
+
+  let metadataFreshPass = true;
+  let metadataFreshChecked = 0;
+  let metadataFreshTotal = 0;
+
+  // Check per-finding assertions for each round
+  for (let ri = 0; ri < golden.rounds.length; ri++) {
+    const roundJudge = roundResults[ri];
+
+    // Count totals from golden (how many findings have each expectation)
+    for (const gf of golden.rounds[ri].expected_findings) {
+      if (gf.expected_status !== undefined) statusTotal++;
+      if (gf.expected_pre_existing !== undefined) preExistingTotal++;
+      if (gf.expected_status === "persisting") {
+        persistingIdsTotal++;
+        metadataFreshTotal++;
+      }
+    }
+
+    for (const match of roundJudge.matched) {
+      const goldenFinding = match.golden as MultiRoundGoldenFinding;
+      const actual = match.actual;
+
+      // Status check
+      if (goldenFinding.expected_status !== undefined) {
+        statusChecked++;
+        if (actual.status !== goldenFinding.expected_status) {
+          statusPass = false;
+        }
+      }
+
+      // Pre-existing check
+      if (goldenFinding.expected_pre_existing !== undefined) {
+        preExistingChecked++;
+        if (actual.pre_existing !== goldenFinding.expected_pre_existing) {
+          preExistingPass = false;
+        }
+      }
+
+      // Persisting ID exactness: persisting findings must carry exact round-1 ID
+      if (goldenFinding.expected_status === "persisting") {
+        const expectedId = idMap[goldenFinding.description];
+        if (expectedId) {
+          persistingIdsChecked++;
+          if (actual.id !== expectedId) {
+            persistingIdsPass = false;
+          }
+        }
+      }
+
+      // Metadata freshness: persisting findings must carry round-2 metadata
+      if (goldenFinding.expected_status === "persisting") {
+        metadataFreshChecked++;
+        if (actual.impact !== goldenFinding.expected_impact ||
+            actual.confidence !== goldenFinding.expected_confidence) {
+          metadataFreshPass = false;
+        }
+      }
+    }
+  }
+
+  // Resolved findings checks
+  let resolvedMatched = 0;
+  let resolvedTotal = 0;
+  let resolvedIdsPass = true;
+  let resolvedIdsChecked = 0;
+
+  for (let ri = 0; ri < golden.rounds.length; ri++) {
+    const goldenRound = golden.rounds[ri];
+    if (!goldenRound.expected_resolved) continue;
+
+    const actualResolved = actualResolvedFindings[ri] ?? [];
+    resolvedTotal += goldenRound.expected_resolved.length;
+
+    for (const expectedResolved of goldenRound.expected_resolved) {
+      // Find matching resolved finding by keyword overlap
+      const match = actualResolved.find((f) => {
+        const keywords = expectedResolved.description.toLowerCase().split(/\s+/);
+        return keywords.some(
+          (k) => k.length > 3 && (f.title.toLowerCase().includes(k) || f.description.toLowerCase().includes(k)),
+        );
+      });
+
+      if (match) {
+        resolvedMatched++;
+
+        // Prefix check (always applies if specified)
+        if (expectedResolved.expected_id_prefix && !match.id.startsWith(expectedResolved.expected_id_prefix)) {
+          resolvedIdsPass = false;
+        }
+
+        // Exact ID check via idMap — only count as checked if idMap has an entry
+        const expectedId = idMap[expectedResolved.description];
+        if (expectedId) {
+          resolvedIdsChecked++;
+          if (match.id !== expectedId) {
+            resolvedIdsPass = false;
+          }
+        }
+      }
+    }
+  }
+
+  return {
+    rounds: roundResults,
+    resolved_matched: resolvedMatched,
+    resolved_total: resolvedTotal,
+    resolved_ids_exact: { pass: resolvedIdsPass, checked: resolvedIdsChecked, total: resolvedTotal },
+    status_correct: { pass: statusPass, checked: statusChecked, total: statusTotal },
+    pre_existing_correct: { pass: preExistingPass, checked: preExistingChecked, total: preExistingTotal },
+    persisting_ids_exact: { pass: persistingIdsPass, checked: persistingIdsChecked, total: persistingIdsTotal },
+    persisting_metadata_fresh: { pass: metadataFreshPass, checked: metadataFreshChecked, total: metadataFreshTotal },
   };
 }

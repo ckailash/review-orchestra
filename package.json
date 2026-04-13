@@ -21,6 +21,7 @@
     "codex",
     "orchestration"
   ],
+  "author": "Kailash Chandrasekaran <mail@ckailash.com>",
   "license": "MIT",
   "files": [
     "dist/",

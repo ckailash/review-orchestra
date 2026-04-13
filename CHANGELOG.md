@@ -18,5 +18,10 @@
 - `review-orchestra reset` — clear session state
 - Cross-session finding storage (~/.review-orchestra/findings.jsonl)
 - Real-time progress reporting (stderr + progress.json)
+- Fuzzy matching for cross-reviewer finding dedup (same bug, different wording)
+- Clean-code eval fixture for false positive rate measurement
+- Multi-round eval harness with cross-round assertion coverage
+- Deterministic severity accuracy computation in eval judge
+- Expanded golden fixtures for improved recall measurement
 - Pluggable reviewer interface — any CLI tool can be a reviewer
 - Natural language CLI arguments — no --flags needed

@@ -1,0 +1,58 @@
+{
+  "fixture": "multi-round",
+  "rounds": [
+    {
+      "expected_findings": [
+        {
+          "description": "SQL injection in getUser()",
+          "expected_impact": "critical",
+          "expected_confidence": "verified",
+          "expected_status": "new",
+          "expected_pre_existing": false
+        },
+        {
+          "description": "Missing input validation in createUser()",
+          "expected_impact": "functional",
+          "expected_confidence": "likely",
+          "expected_status": "new",
+          "expected_pre_existing": false
+        },
+        {
+          "description": "Hardcoded database password",
+          "expected_impact": "critical",
+          "expected_confidence": "verified",
+          "expected_status": "new",
+          "expected_pre_existing": false
+        }
+      ]
+    },
+    {
+      "expected_findings": [
+        {
+          "description": "Missing input validation in createUser()",
+          "expected_impact": "quality",
+          "expected_confidence": "likely",
+          "expected_status": "persisting",
+          "expected_pre_existing": true
+        },
+        {
+          "description": "Hardcoded database password",
+          "expected_impact": "critical",
+          "expected_confidence": "verified",
+          "expected_status": "persisting",
+          "expected_pre_existing": true
+        },
+        {
+          "description": "Path traversal in exportUser()",
+          "expected_impact": "critical",
+          "expected_confidence": "verified",
+          "expected_status": "new",
+          "expected_pre_existing": false
+        }
+      ],
+      "expected_resolved": [
+        { "description": "SQL injection in getUser()", "expected_id_prefix": "r1-f-" }
+      ]
+    }
+  ]
+}
