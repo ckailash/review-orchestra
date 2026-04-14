@@ -120,7 +120,10 @@ describe("isFuzzyMatch", () => {
     expect(isFuzzyMatch(a, b)).toBe(true);
   });
 
-  it("returns true for same file + lines within 3 + same category (even if titles don't overlap much)", () => {
+  it("returns true for same file + lines within 3 + same category + some title-token overlap", () => {
+    // Lines within 3 + same category is a strong proximity signal, but we
+    // also require at least one shared title token so that unrelated bugs
+    // in the same region don't collapse together.
     const a = makeFinding({
       file: "src/auth.ts",
       line: 42,
@@ -130,10 +133,29 @@ describe("isFuzzyMatch", () => {
     const b = makeFinding({
       file: "src/auth.ts",
       line: 44,
-      title: "Password exposed in plaintext",
+      title: "Plaintext credentials exposed in logs",
       category: "security",
     });
     expect(isFuzzyMatch(a, b)).toBe(true);
+  });
+
+  it("returns false for same file + nearby lines + same broad category but no shared title tokens", () => {
+    // Regression for r1-f-014: two unrelated `logic` findings sitting a few
+    // lines apart previously merged into one via the category heuristic,
+    // silently dropping one of the reports.
+    const a = makeFinding({
+      file: "src/retry.ts",
+      line: 10,
+      title: "Missing null check",
+      category: "logic",
+    });
+    const b = makeFinding({
+      file: "src/retry.ts",
+      line: 12,
+      title: "Incorrect retry count",
+      category: "logic",
+    });
+    expect(isFuzzyMatch(a, b)).toBe(false);
   });
 
   it("returns false for different files", () => {
@@ -200,7 +222,7 @@ describe("isFuzzyMatch", () => {
     expect(isFuzzyMatch(a, b)).toBe(true);
   });
 
-  it("returns true at exact boundary: lines exactly 3 apart with same category", () => {
+  it("returns true at exact boundary: lines exactly 3 apart with same category and shared title token", () => {
     const a = makeFinding({
       file: "src/auth.ts",
       line: 40,
@@ -210,7 +232,7 @@ describe("isFuzzyMatch", () => {
     const b = makeFinding({
       file: "src/auth.ts",
       line: 43,
-      title: "Plaintext password exposure",
+      title: "Plaintext credentials exposure",
       category: "security",
     });
     expect(isFuzzyMatch(a, b)).toBe(true);

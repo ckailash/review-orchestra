@@ -86,6 +86,7 @@ export interface ReviewResult {
   reviewerErrors: Array<{ reviewer: string; error: string }>;
   worktreeHash: string;
   scope: DiffScope;
+  thresholds: ThresholdConfig;
   metadata: ReviewMetadata;
 }
 

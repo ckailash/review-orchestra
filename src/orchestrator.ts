@@ -7,6 +7,7 @@ import type {
   Finding,
   ReviewMetadata,
   ReviewResult,
+  Round,
 } from "./types";
 import { SessionManager } from "./state";
 import { consolidate } from "./consolidator";
@@ -72,7 +73,7 @@ export class Orchestrator {
     try {
       const worktreeHash = computeWorktreeHash();
 
-      let round;
+      let round: Round;
       let allFindings: Finding[];
       let reviewerErrors: Array<{ reviewer: string; error: string }>;
       let timings: Array<{ name: string; elapsedMs: number }> = [];
@@ -92,15 +93,6 @@ export class Orchestrator {
         for (const [, output] of Object.entries(round.reviews)) {
           allFindings.push(...output.findings);
         }
-
-        // Re-run consolidation
-        this.state.updatePhase("consolidating");
-        const consolStart = Date.now();
-        const consolidated = consolidate(allFindings, scope.diff);
-        const consolElapsed = Date.now() - consolStart;
-        this.state.saveConsolidated(consolidated);
-        this.callbacks.onConsolidated?.(consolidated);
-        log(`review complete (consolidation ${(consolElapsed / 1000).toFixed(1)}s)`);
       } else if (recovery.isRecovery && recovery.phase === "reviewing") {
         // Crash during reviewing — resume, skip completed reviewers
         const currentRound = this.state.getCurrentRound();
@@ -147,15 +139,6 @@ export class Orchestrator {
           reviewerErrors = reviewResult.reviewerErrors;
           timings = reviewResult.timings;
         }
-
-        // Phase 2: Consolidation
-        this.state.updatePhase("consolidating");
-        const consolStart = Date.now();
-        const consolidated = consolidate(allFindings, scope.diff);
-        const consolElapsed = Date.now() - consolStart;
-        this.state.saveConsolidated(consolidated);
-        this.callbacks.onConsolidated?.(consolidated);
-        log(`review complete (${timings.map(t => `${t.name} ${(t.elapsedMs / 1000).toFixed(1)}s`).join(", ")}${timings.length > 0 ? ", " : ""}consolidation ${(consolElapsed / 1000).toFixed(1)}s)`);
       } else {
         // Normal flow — create a new round
         round = this.state.newRound(worktreeHash);
@@ -167,16 +150,25 @@ export class Orchestrator {
         allFindings = reviewResult.findings;
         reviewerErrors = reviewResult.reviewerErrors;
         timings = reviewResult.timings;
-
-        // Phase 2: Consolidation
-        this.state.updatePhase("consolidating");
-        const consolStart = Date.now();
-        const consolidated = consolidate(allFindings, scope.diff);
-        const consolElapsed = Date.now() - consolStart;
-        this.state.saveConsolidated(consolidated);
-        this.callbacks.onConsolidated?.(consolidated);
-        log(`review complete (${timings.map(t => `${t.name} ${(t.elapsedMs / 1000).toFixed(1)}s`).join(", ")}, consolidation ${(consolElapsed / 1000).toFixed(1)}s)`);
       }
+
+      // Phase 2: Consolidation — shared across all branches so logging and
+      // state transitions are consistent.
+      this.state.updatePhase("consolidating");
+      const consolStart = Date.now();
+      const consolidated = consolidate(allFindings, scope.diff);
+      const consolElapsed = Date.now() - consolStart;
+      this.state.saveConsolidated(consolidated);
+      this.callbacks.onConsolidated?.(consolidated);
+      const timingsPart =
+        timings.length > 0
+          ? timings
+              .map((t) => `${t.name} ${(t.elapsedMs / 1000).toFixed(1)}s`)
+              .join(", ") + ", "
+          : "";
+      log(
+        `review complete (${timingsPart}consolidation ${(consolElapsed / 1000).toFixed(1)}s)`,
+      );
 
       // Phase 3: Finding comparison — assign IDs and statuses
       const previousRound = this.state.getPreviousRound();
@@ -230,6 +222,7 @@ export class Orchestrator {
         reviewerErrors,
         worktreeHash: sessionState.worktreeHash,
         scope,
+        thresholds: this.config.thresholds,
         metadata: {
           reviewer: activeReviewers.map((r) => r.name).join(","),
           round: round.number,

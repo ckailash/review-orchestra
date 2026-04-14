@@ -18,6 +18,7 @@ import {
   unlinkSync,
   appendFileSync,
   realpathSync,
+  lstatSync,
 } from "fs";
 import { join } from "path";
 import { homedir } from "os";
@@ -40,8 +41,18 @@ function createSkillSymlink(packageRoot: string): void {
     mkdirSync(skillsDir, { recursive: true });
   }
 
-  // If symlink exists, check if it's stale
-  if (existsSync(symlinkPath)) {
+  // Detect an existing symlink (including broken ones) with lstatSync —
+  // existsSync follows the link and returns false for broken links, which
+  // would leave the stale link in place and cause symlinkSync to EEXIST.
+  let linkPresent = false;
+  try {
+    lstatSync(symlinkPath);
+    linkPresent = true;
+  } catch {
+    // Path doesn't exist — nothing to remove
+  }
+
+  if (linkPresent) {
     try {
       const actualReal = realpathSync(symlinkPath);
       const expectedReal = realpathSync(target);
@@ -51,7 +62,7 @@ function createSkillSymlink(packageRoot: string): void {
     } catch {
       // realpathSync failed — treat as stale/broken
     }
-    // Remove stale symlink
+    // Remove stale or broken symlink
     unlinkSync(symlinkPath);
   }
 

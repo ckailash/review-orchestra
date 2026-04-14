@@ -43,6 +43,8 @@ For each finding, show:
 
 Separate **pre-existing findings** under their own heading — these are issues in unchanged code, shown for awareness but not part of the current diff.
 
+Use `thresholds.stopAt` from the `ReviewResult` as a **default recommendation** for what to fix: `p0` = critical only, `p1` = + functional (default), `p2` = + quality, `p3` = everything. When presenting findings, call out which severities are covered by the current threshold so the user can accept the recommendation or override it in step 3.
+
 If this is **round 2+**, also show resolved findings (from the `resolvedFindings` array in the ReviewResult): "N findings from round X resolved." List titles briefly — no need for full detail on resolved items.
 
 ## Step 3: User decides

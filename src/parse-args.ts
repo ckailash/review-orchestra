@@ -111,9 +111,10 @@ export function parseArgs(input: string): ParsedArgs {
     result.models[modelForMatch[2].toLowerCase()] = modelForMatch[1];
     remaining = remaining.replace(modelForMatch[0], "").trim();
   }
-  // Bare model name without "for <reviewer>" — infer target from model name
-  const modelMatch = remaining.match(/use\s+([\w.-]+)/i);
-  if (modelMatch) {
+  // Bare model name without "for <reviewer>" — infer target from model name.
+  // Loop to consume multiple bare model tokens (e.g. "use opus use o3").
+  let modelMatch;
+  while ((modelMatch = remaining.match(/use\s+([\w.-]+)/i))) {
     const modelName = modelMatch[1];
     const target = inferReviewerForModel(modelName);
     result.models[target] = modelName;

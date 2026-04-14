@@ -1,4 +1,5 @@
-import { binaryExists, VALID_BINARY_PATTERN } from "./checks.js";
+import { binaryExists } from "./checks.js";
+import { parseCommand } from "./reviewers/command";
 import type { Config } from "./types";
 
 interface BinaryInfo {
@@ -20,10 +21,6 @@ const KNOWN_BINARIES: Record<string, BinaryInfo> = {
   },
 };
 
-function extractBinary(command: string): string {
-  return command.trim().split(/\s+/)[0];
-}
-
 export interface PreflightResult {
   ok: boolean;
   errors: string[];
@@ -42,7 +39,7 @@ export function runPreflight(config: Config): PreflightResult {
     if (!reviewerConfig.enabled) continue;
     enabledCount++;
 
-    const binary = extractBinary(reviewerConfig.command);
+    const { bin: binary } = parseCommand(reviewerConfig.command);
     const exists = binaryExists(binary);
 
     if (!exists) {

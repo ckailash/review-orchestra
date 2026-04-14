@@ -45,30 +45,42 @@ function tryBalancedParse(raw: string, startIdx: number): unknown | null {
   return null;
 }
 
+// Cap on the number of candidate start positions we'll try, to avoid
+// O(n^2) behaviour on pathological inputs (e.g. long prose with many `{`).
+const MAX_PARSE_ATTEMPTS = 64;
+
 /**
- * Try all occurrences of `char` in `raw` as JSON start positions.
- * Returns the first successfully parsed value, or null.
+ * Try up to MAX_PARSE_ATTEMPTS occurrences of `char` in `raw` as JSON start
+ * positions. Returns the first successfully parsed value, or null.
  */
 function tryAllOccurrences(raw: string, char: string): unknown | null {
   let searchFrom = 0;
-  while (true) {
+  let attempts = 0;
+  while (attempts < MAX_PARSE_ATTEMPTS) {
     const idx = raw.indexOf(char, searchFrom);
     if (idx === -1) break;
 
-    // Try parsing from this position to end of string
-    try {
-      return JSON.parse(raw.slice(idx));
-    } catch {
-      // noop
-    }
-
-    // Try balanced extraction
     const result = tryBalancedParse(raw, idx);
     if (result !== null) return result;
 
+    attempts++;
     searchFrom = idx + 1;
   }
   return null;
+}
+
+/**
+ * Find the position of the first `{` or `[` in `raw`. Returns {char, idx}
+ * or null if neither is present. Used to choose which top-level container
+ * shape to prefer when extracting JSON from noisy output.
+ */
+function firstContainerStart(raw: string): { char: "{" | "["; idx: number } | null {
+  const obj = raw.indexOf("{");
+  const arr = raw.indexOf("[");
+  if (obj === -1 && arr === -1) return null;
+  if (obj === -1) return { char: "[", idx: arr };
+  if (arr === -1) return { char: "{", idx: obj };
+  return obj < arr ? { char: "{", idx: obj } : { char: "[", idx: arr };
 }
 
 /**
@@ -93,13 +105,19 @@ export function extractJson(raw: string): unknown | null {
     }
   }
 
-  // f-018: Prefer objects over arrays to avoid misidentifying bracket-prefixed prose.
-  // Try all { positions first, then fall back to [ positions.
-  const objResult = tryAllOccurrences(raw, "{");
-  if (objResult !== null) return objResult;
-
-  const arrResult = tryAllOccurrences(raw, "[");
-  if (arrResult !== null) return arrResult;
+  // Prefer whichever top-level container (`{` or `[`) appears first in the
+  // raw string, so an array payload with leading prose (e.g.
+  // `note\n[{...}]`) is parsed as the array rather than as its first
+  // inner object. Fall back to scanning the other container kind if the
+  // first choice didn't yield a parse.
+  const first = firstContainerStart(raw);
+  if (first) {
+    const primary = tryAllOccurrences(raw, first.char);
+    if (primary !== null) return primary;
+    const otherChar = first.char === "{" ? "[" : "{";
+    const secondary = tryAllOccurrences(raw, otherChar);
+    if (secondary !== null) return secondary;
+  }
 
   return null;
 }

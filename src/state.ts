@@ -222,13 +222,6 @@ export class SessionManager {
     }
   }
 
-  complete(): void {
-    this.state.status = "completed";
-    this.state.completedAt = new Date().toISOString();
-    this.persist();
-    this.releaseLock();
-  }
-
   fail(): void {
     // Keep session active so the user can retry after failure
     this.persist();
@@ -291,7 +284,34 @@ export class SessionManager {
         } catch {
           // Another process may have already removed it — ignore
         }
-        writeFileSync(this.lockFile, String(process.pid), { flag: "wx" });
+        try {
+          writeFileSync(this.lockFile, String(process.pid), { flag: "wx" });
+        } catch (retryErr) {
+          // Another instance raced in between the unlink and retry.
+          if (
+            retryErr &&
+            typeof retryErr === "object" &&
+            "code" in retryErr &&
+            (retryErr as NodeJS.ErrnoException).code === "EEXIST"
+          ) {
+            let racingPid: number | null = null;
+            try {
+              racingPid = parseInt(readFileSync(this.lockFile, "utf-8").trim(), 10);
+            } catch {
+              // Can't read — fall through with null
+            }
+            if (racingPid && !isNaN(racingPid)) {
+              throw new Error(
+                `Another review-orchestra instance is running (PID ${racingPid}). ` +
+                  `Delete ${this.lockFile} if this is incorrect.`,
+              );
+            }
+            throw new Error(
+              `Lock contention on ${this.lockFile} — another instance may be starting. Retry in a moment.`,
+            );
+          }
+          throw retryErr;
+        }
       } else {
         throw err;
       }

@@ -41,10 +41,11 @@ interface JsonlEntry {
 }
 
 /**
- * Appends each finding as one JSONL line to <baseDir>/findings.jsonl.
+ * Appends all findings as JSONL lines to <baseDir>/findings.jsonl in a
+ * single append call, so a mid-loop failure (ENOSPC, permission change) can't
+ * leave the store partially written.
  * Creates directory recursively if missing.
- * Empty findings array is a no-op (no file write).
- * Uses fs.appendFileSync for each line (atomic per-line).
+ * Empty findings array is a no-op.
  */
 export function appendFindings(options: AppendFindingsOptions): void {
   const { findings, sessionId, round, project } = options;
@@ -55,19 +56,24 @@ export function appendFindings(options: AppendFindingsOptions): void {
   mkdirSync(baseDir, { recursive: true });
 
   const filePath = join(baseDir, JSONL_FILENAME);
+  const timestamp = new Date().toISOString();
 
-  for (const finding of findings) {
-    const entry: JsonlEntry = {
-      timestamp: new Date().toISOString(),
-      project,
-      sessionId,
-      round,
-      finding,
-      status: finding.status ?? "new",
-      resolved_in_round: null,
-    };
-    appendFileSync(filePath, JSON.stringify(entry) + "\n");
-  }
+  const payload = findings
+    .map((finding) => {
+      const entry: JsonlEntry = {
+        timestamp,
+        project,
+        sessionId,
+        round,
+        finding,
+        status: finding.status ?? "new",
+        resolved_in_round: null,
+      };
+      return JSON.stringify(entry);
+    })
+    .join("\n") + "\n";
+
+  appendFileSync(filePath, payload);
 }
 
 /**

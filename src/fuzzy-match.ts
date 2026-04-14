@@ -33,20 +33,32 @@ export function jaccardSimilarity(a: Set<string>, b: Set<string>): number {
 
 /**
  * Determine if two findings are fuzzy-matches (likely the same bug).
- * Returns true if ALL of:
- * 1. Same file
- * 2. Lines within 5
- * 3. EITHER Jaccard similarity of titles > 0.3,
- *    OR (same category AND lines within 3)
+ * Returns true if:
+ * 1. Same file AND lines within 5, AND
+ * 2. EITHER Jaccard similarity of titles > 0.3,
+ *    OR (same category AND lines within 3 AND at least one shared title token).
+ *
+ * The token-overlap requirement on the category-proximity branch avoids
+ * collapsing unrelated bugs that happen to share a broad category and sit
+ * within a few lines of each other (e.g. two distinct `logic` findings on
+ * adjacent lines).
  */
 export function isFuzzyMatch(a: Finding, b: Finding): boolean {
   if (a.file !== b.file) return false;
   if (Math.abs(a.line - b.line) > 5) return false;
 
-  const titleSimilarity = jaccardSimilarity(tokenize(a.title), tokenize(b.title));
+  const titleTokensA = tokenize(a.title);
+  const titleTokensB = tokenize(b.title);
+  const titleSimilarity = jaccardSimilarity(titleTokensA, titleTokensB);
   if (titleSimilarity > 0.3) return true;
 
-  if (a.category === b.category && Math.abs(a.line - b.line) <= 3) return true;
+  if (
+    a.category === b.category &&
+    Math.abs(a.line - b.line) <= 3 &&
+    titleSimilarity > 0
+  ) {
+    return true;
+  }
 
   return false;
 }

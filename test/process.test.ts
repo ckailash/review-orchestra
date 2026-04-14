@@ -14,14 +14,23 @@ function createFakeChild() {
   const child = new EventEmitter() as EventEmitter & {
     stdout: EventEmitter;
     stderr: EventEmitter;
-    stdin: { write: ReturnType<typeof vi.fn>; end: ReturnType<typeof vi.fn> };
+    stdin: EventEmitter & {
+      write: ReturnType<typeof vi.fn>;
+      end: ReturnType<typeof vi.fn>;
+    };
     kill: ReturnType<typeof vi.fn>;
     exitCode: number | null;
     signalCode: string | null;
   };
   child.stdout = new EventEmitter();
   child.stderr = new EventEmitter();
-  child.stdin = { write: vi.fn(), end: vi.fn() };
+  const stdin = new EventEmitter() as EventEmitter & {
+    write: ReturnType<typeof vi.fn>;
+    end: ReturnType<typeof vi.fn>;
+  };
+  stdin.write = vi.fn();
+  stdin.end = vi.fn();
+  child.stdin = stdin;
   child.kill = vi.fn();
   child.exitCode = null;
   child.signalCode = null;

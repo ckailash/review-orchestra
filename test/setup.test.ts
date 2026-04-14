@@ -38,6 +38,7 @@ const mockAppendFileSync = vi.fn();
 const mockExistsSyncFs = vi.fn();
 const mockReadFileSyncFs = vi.fn();
 const mockRealpathSyncFs = vi.fn();
+const mockLstatSyncFs = vi.fn();
 
 vi.mock("fs", () => ({
   mkdirSync: (...args: unknown[]) => mockMkdirSync(...args),
@@ -47,6 +48,7 @@ vi.mock("fs", () => ({
   existsSync: (...args: unknown[]) => mockExistsSyncFs(...args),
   readFileSync: (...args: unknown[]) => mockReadFileSyncFs(...args),
   realpathSync: (...args: unknown[]) => mockRealpathSyncFs(...args),
+  lstatSync: (...args: unknown[]) => mockLstatSyncFs(...args),
 }));
 
 // Mock process.exit — created in beforeEach, restored in afterEach
@@ -79,6 +81,14 @@ beforeEach(() => {
   mockExistsSyncFs.mockReset();
   mockReadFileSyncFs.mockReset();
   mockRealpathSyncFs.mockReset();
+  mockLstatSyncFs.mockReset();
+  // Default: treat the symlink path as absent. Tests that need an existing
+  // symlink (stale or valid) override this mock directly.
+  mockLstatSyncFs.mockImplementation(() => {
+    const err = new Error("ENOENT") as NodeJS.ErrnoException;
+    err.code = "ENOENT";
+    throw err;
+  });
   mockExit = vi.spyOn(process, "exit").mockImplementation((() => {}) as never);
   mockStderr.mockClear();
   stderrOutput = "";
@@ -289,6 +299,8 @@ describe("runSetup", () => {
         if (typeof p === "string" && p.includes("skills")) return true;
         return true;
       });
+      // lstatSync succeeds — link is present (even if stale)
+      mockLstatSyncFs.mockImplementation(() => ({}));
       // realpathSync shows mismatch (stale)
       mockRealpathSyncFs.mockImplementation((p: string) => {
         if (typeof p === "string" && p.includes("skills/review-orchestra")) return "/old/stale/skill";

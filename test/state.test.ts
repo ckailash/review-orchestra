@@ -793,16 +793,6 @@ describe("SessionManager", () => {
 
   // --- Completion ---
   describe("completion", () => {
-    it("completes a session", () => {
-      const sm = new SessionManager(TEST_DIR);
-      sm.startOrContinue(makeScope());
-      sm.newRound("hash1");
-      sm.complete();
-      const state = sm.getState();
-      expect(state.status).toBe("completed");
-      expect(state.completedAt).toBeTruthy();
-    });
-
     it("fails a session (keeps active status for retry)", () => {
       const sm = new SessionManager(TEST_DIR);
       sm.startOrContinue(makeScope());
@@ -819,14 +809,6 @@ describe("SessionManager", () => {
       const sm = new SessionManager(TEST_DIR);
       sm.startOrContinue(makeScope());
       expect(existsSync(join(TEST_DIR, "state.lock"))).toBe(true);
-    });
-
-    it("releases lock on completion", () => {
-      const sm = new SessionManager(TEST_DIR);
-      sm.startOrContinue(makeScope());
-      sm.newRound("hash1");
-      sm.complete();
-      expect(existsSync(join(TEST_DIR, "state.lock"))).toBe(false);
     });
 
     it("releases lock without changing session status via releaseLock()", () => {

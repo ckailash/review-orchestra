@@ -100,7 +100,10 @@ export function spawnWithStreaming(opts: SpawnOptions): Promise<string> {
       stdoutChunks.push(chunk);
     });
 
-    // Write stdin and close
+    // Write stdin and close. Attach an error listener so EPIPE (child exits
+    // before consuming stdin) is absorbed here — the close handler below
+    // reports the non-zero exit/signal as a rejected promise.
+    child.stdin?.on("error", () => {});
     if (input) {
       child.stdin?.write(input);
     }

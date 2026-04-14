@@ -31,11 +31,15 @@ function diffNewFile(file: string): string {
 }
 
 function parseFileList(output: string): string[] {
+  // Reject absolute paths and path-separator-delimited traversal segments
+  // (`..` as a full segment). Filenames that merely contain `..` (e.g.
+  // `types..d.ts`) are allowed — git's own output is trusted, and the
+  // user-supplied path filter is validated separately in `validatePaths`.
   return output
     .split("\n")
     .map((f) => f.trim())
     .filter(Boolean)
-    .filter((f) => !f.startsWith("/") && !f.includes(".."));
+    .filter((f) => !f.startsWith("/") && !/(^|\/)\.\.(\/|$)/.test(f));
 }
 
 function validatePaths(paths: string[]): string[] {

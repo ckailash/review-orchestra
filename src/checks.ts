@@ -17,8 +17,12 @@ export interface CheckResult {
 // --- Low-level helpers ---
 
 /**
- * Regex for validating binary names — rejects shell metacharacters.
- * Matches names containing only alphanumerics, dots, underscores, hyphens, and slashes.
+ * Regex for validating binary references passed to `which`. Accepts bare
+ * names (e.g. `claude`) and absolute paths (e.g. `/usr/local/bin/claude`),
+ * since users may configure reviewer commands with absolute paths. Rejects
+ * shell metacharacters (space, quotes, `;`, `|`, `&`, `$`, backticks, etc.)
+ * so an attacker-influenced config cannot turn a PATH lookup into a shell
+ * injection vector.
  */
 export const VALID_BINARY_PATTERN = /^[a-zA-Z0-9._\-/]+$/;
 

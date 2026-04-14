@@ -184,6 +184,10 @@ async function main(): Promise<void> {
     case "doctor":
       await runDoctor();
       break;
+    default: {
+      const _exhaustive: never = subcommand;
+      throw new Error(`Unknown subcommand: ${String(_exhaustive)}`);
+    }
   }
 }
 

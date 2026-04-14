@@ -52,16 +52,25 @@ describe("extractJson", () => {
     expect(extractJson("{not: valid}")).toBeNull();
   });
 
-  it("prefers object over array when both { and [ are present", () => {
-    const input = 'Some text [1, 2, 3] and {"key": "value"}';
+  it("prefers the first-appearing container when both { and [ are present", () => {
+    const input = 'Some text {"key": "value"} and [1, 2, 3]';
     const result = extractJson(input);
     expect(result).toEqual({ key: "value" });
   });
 
-  it("finds object even when [ appears before {", () => {
-    const input = '[1, 2, 3] {"findings": []}';
+  it("returns the array when [ appears before { in noisy output", () => {
+    // Regression: previously the extractor preferred objects over arrays,
+    // which silently dropped array-shaped reviewer payloads behind a
+    // leading `[`. See r1-f-013.
+    const input = 'note before\n[{"id":1,"x":2}]';
     const result = extractJson(input);
-    expect(result).toEqual({ findings: [] });
+    expect(result).toEqual([{ id: 1, x: 2 }]);
+  });
+
+  it("falls back to the other container kind when the first one doesn't parse", () => {
+    const input = '[ still unterminated {"key": "value"}';
+    const result = extractJson(input);
+    expect(result).toEqual({ key: "value" });
   });
 });
 
