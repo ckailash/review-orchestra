@@ -4,6 +4,7 @@ import { extractJson } from "./json-utils";
 import { log } from "./log";
 import { isFuzzyMatch } from "./fuzzy-match";
 import { stripNestedSessionEnv } from "./nested-session-env";
+import { parseCommand } from "./reviewers/command";
 
 export interface ComparisonResult {
   newFindings: Finding[];
@@ -198,6 +199,7 @@ async function compareFindingsViaLLM(
   currentFindings: Finding[],
   previousFindings: Finding[],
   config: FindingComparisonConfig,
+  claudeCommand?: string,
 ): Promise<ComparisonResult> {
   // Build summaries
   const previousSummaries = previousFindings
@@ -210,8 +212,17 @@ async function compareFindingsViaLLM(
   // Build prompt
   const prompt = buildComparisonPrompt(previousSummaries, currentSummaries);
 
+  // Resolve the claude binary from the user-configured reviewer command
+  // when provided, so a non-default binary path or argv is honoured here
+  // instead of being silently bypassed with a hardcoded "claude". The
+  // configured command's args are dropped (the comparison call has its
+  // own argv shape — stdin prompt, text output, comparison model).
+  const { bin } = claudeCommand
+    ? parseCommand(claudeCommand)
+    : { bin: "claude" };
+
   const output = await spawnWithStreaming({
-    bin: "claude",
+    bin,
     args: ["-p", "-", "--output-format", "text", "--model", config.model],
     input: prompt,
     env: stripNestedSessionEnv(),
@@ -332,6 +343,7 @@ export async function compareFindings(
   currentFindings: Finding[],
   previousFindings: Finding[],
   config?: FindingComparisonConfig,
+  claudeCommand?: string,
 ): Promise<ComparisonResult> {
   // Short-circuit: no previous findings means all are new
   if (previousFindings.length === 0) {
@@ -363,7 +375,7 @@ export async function compareFindings(
 
   // LLM path
   try {
-    return await compareFindingsViaLLM(currentFindings, previousFindings, config);
+    return await compareFindingsViaLLM(currentFindings, previousFindings, config, claudeCommand);
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     if (config.fallback === "error") {
@@ -395,9 +407,10 @@ export async function assignFindingIds(
   previousFindings: Finding[],
   roundNumber: number,
   config?: FindingComparisonConfig,
+  claudeCommand?: string,
 ): Promise<AssignedResult> {
   const { newFindings, persistingFindings, resolvedFindings } =
-    await compareFindings(currentFindings, previousFindings, config);
+    await compareFindings(currentFindings, previousFindings, config, claudeCommand);
 
   // Assign round-scoped IDs to new findings
   const assignedNew: Finding[] = newFindings.map((f, i) => ({

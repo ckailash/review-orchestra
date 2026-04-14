@@ -466,6 +466,94 @@ describe("SessionManager", () => {
       expect(existsSync(join(TEST_DIR, "state.lock"))).toBe(false);
     });
 
+    it("expires session when user-supplied path filter changes between rounds", () => {
+      const activeState: SessionState = {
+        sessionId: "20260315-143022",
+        status: "active",
+        currentRound: 1,
+        rounds: [
+          {
+            number: 1,
+            phase: "complete",
+            reviews: {},
+            consolidated: [],
+            worktreeHash: "hash1",
+            startedAt: "2026-03-15T14:30:22Z",
+            completedAt: "2026-03-15T14:31:00Z",
+          },
+        ],
+        scope: makeScope({
+          baseBranch: "main",
+          baseCommitSha: "abc123",
+          pathFilters: ["src/auth/"],
+        }),
+        worktreeHash: "hash1",
+        startedAt: "2026-03-15T14:30:22Z",
+        completedAt: null,
+      };
+      writeFileSync(
+        join(TEST_DIR, "session.json"),
+        JSON.stringify(activeState, null, 2),
+      );
+
+      const sm = new SessionManager(TEST_DIR);
+      // Same base, but different user-supplied path filter — should expire
+      expect(() =>
+        sm.startOrContinue(
+          makeScope({
+            baseBranch: "main",
+            baseCommitSha: "abc123",
+            pathFilters: ["src/api/"],
+          }),
+        ),
+      ).toThrow(/expired|reset/i);
+    });
+
+    it("does not expire when scope.files changes but pathFilters and baseCommitSha match (normal between-rounds drift)", () => {
+      const activeState: SessionState = {
+        sessionId: "20260315-143022",
+        status: "active",
+        currentRound: 1,
+        rounds: [
+          {
+            number: 1,
+            phase: "complete",
+            reviews: {},
+            consolidated: [],
+            worktreeHash: "hash1",
+            startedAt: "2026-03-15T14:30:22Z",
+            completedAt: "2026-03-15T14:31:00Z",
+          },
+        ],
+        scope: makeScope({
+          baseBranch: "main",
+          baseCommitSha: "abc123",
+          files: ["src/foo.ts", "src/bar.ts"],
+          pathFilters: [],
+        }),
+        worktreeHash: "hash1",
+        startedAt: "2026-03-15T14:30:22Z",
+        completedAt: null,
+      };
+      writeFileSync(
+        join(TEST_DIR, "session.json"),
+        JSON.stringify(activeState, null, 2),
+      );
+
+      const sm = new SessionManager(TEST_DIR);
+      // Normal between-rounds drift: one file fixed, only one remains
+      expect(() =>
+        sm.startOrContinue(
+          makeScope({
+            baseBranch: "main",
+            baseCommitSha: "abc123",
+            files: ["src/bar.ts"],
+            pathFilters: [],
+          }),
+        ),
+      ).not.toThrow();
+    });
+
     it("expires session when scope type changes", () => {
       const activeState: SessionState = {
         sessionId: "20260315-143022",
@@ -845,6 +933,51 @@ describe("SessionManager", () => {
       const sm = new SessionManager(TEST_DIR);
       // Should succeed — stale lock is overwritten
       expect(() => sm.startOrContinue(makeScope())).not.toThrow();
+    });
+
+    it("treats EPERM from process.kill as a live lock owned by another user, not stale", () => {
+      // Write the lock file with an arbitrary PID
+      writeFileSync(join(TEST_DIR, "state.lock"), "12345");
+
+      // Mock process.kill to throw EPERM — meaning the process exists but
+      // we don't have permission to signal it (e.g., owned by another user).
+      // The previous implementation treated any throw as "process gone →
+      // stale lock", which would silently overwrite a live lock.
+      const killSpy = vi
+        .spyOn(process, "kill")
+        .mockImplementation(((_pid: number, _signal?: string | number) => {
+          const err = new Error("EPERM") as NodeJS.ErrnoException;
+          err.code = "EPERM";
+          throw err;
+        }) as typeof process.kill);
+
+      try {
+        const sm = new SessionManager(TEST_DIR);
+        expect(() => sm.startOrContinue(makeScope())).toThrow(
+          /Another review-orchestra instance is running/,
+        );
+      } finally {
+        killSpy.mockRestore();
+      }
+    });
+
+    it("treats ESRCH from process.kill as a stale lock and overwrites", () => {
+      writeFileSync(join(TEST_DIR, "state.lock"), "12345");
+
+      const killSpy = vi
+        .spyOn(process, "kill")
+        .mockImplementation(((_pid: number, _signal?: string | number) => {
+          const err = new Error("ESRCH") as NodeJS.ErrnoException;
+          err.code = "ESRCH";
+          throw err;
+        }) as typeof process.kill);
+
+      try {
+        const sm = new SessionManager(TEST_DIR);
+        expect(() => sm.startOrContinue(makeScope())).not.toThrow();
+      } finally {
+        killSpy.mockRestore();
+      }
     });
   });
 });

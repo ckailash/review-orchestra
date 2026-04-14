@@ -174,7 +174,13 @@ export class Orchestrator {
       const previousFindings = previousRound?.consolidated ?? [];
       const currentConsolidated = this.state.getCurrentRound()?.consolidated ?? [];
       const { findings: comparedFindings, resolvedFindings } =
-        await assignFindingIds(currentConsolidated, previousFindings, round.number, this.config.findingComparison);
+        await assignFindingIds(
+          currentConsolidated,
+          previousFindings,
+          round.number,
+          this.config.findingComparison,
+          this.config.reviewers.claude?.command,
+        );
 
       // Update consolidated findings with IDs and statuses, then notify
       // callbacks with the comparison-resolved findings (round-scoped IDs +
@@ -190,6 +196,11 @@ export class Orchestrator {
       const alreadyPersisted = currentRound?.findingsPersisted === true;
 
       if (!alreadyPersisted) {
+        // Only mark the round as persisted if the primary append succeeded.
+        // A failed write must NOT set the flag — otherwise crash-recovery
+        // would silently skip the retry and the findings would be lost
+        // from the JSONL store.
+        let appendOk = false;
         try {
           appendFindings({
             findings: comparedFindings,
@@ -197,6 +208,7 @@ export class Orchestrator {
             round: round.number,
             project: process.cwd(),
           });
+          appendOk = true;
         } catch (err) {
           log(`warning: failed to append findings: ${err instanceof Error ? err.message : String(err)}`);
         }
@@ -214,7 +226,9 @@ export class Orchestrator {
           }
         }
 
-        this.state.markFindingsPersisted();
+        if (appendOk) {
+          this.state.markFindingsPersisted();
+        }
       }
 
       // Clean up progress.json — round is complete
@@ -224,7 +238,17 @@ export class Orchestrator {
       this.state.updatePhase("complete");
       this.state.releaseLock();
 
-      // Build ReviewResult
+      // Build ReviewResult. metadata.reviewer reflects every reviewer that
+      // contributed to this round — both successful (round.reviews keys)
+      // and failed (reviewerErrors). In crash-recovery flows where some
+      // reviewers ran in an earlier process and others in this one, the
+      // current `activeReviewers` list alone would understate the set.
+      const reviewerNames = Array.from(
+        new Set([
+          ...Object.keys(round.reviews),
+          ...reviewerErrors.map((e) => e.reviewer),
+        ]),
+      );
       const result: ReviewResult = {
         sessionId: sessionState.sessionId,
         round: round.number,
@@ -235,7 +259,7 @@ export class Orchestrator {
         scope,
         thresholds: this.config.thresholds,
         metadata: {
-          reviewer: activeReviewers.map((r) => r.name).join(","),
+          reviewer: reviewerNames.join(","),
           round: round.number,
           timestamp: new Date().toISOString(),
           files_reviewed: scope.files.length,

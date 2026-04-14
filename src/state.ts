@@ -86,12 +86,17 @@ function hasScopeBaseChanged(
     return true;
   }
   // Detect scope description changes (e.g., different commit ranges with
-  // same base). The diff file list intentionally is NOT compared here: in
-  // a multi-round flow, fixing a file removes it from the diff between
-  // rounds while the underlying scope (base, range, user-supplied paths)
-  // is unchanged. Comparing scope.files would expire the session on every
-  // normal follow-up round.
+  // same base).
   if (existingScope.description !== newScope.description) {
+    return true;
+  }
+  // Detect changes to the user-supplied path filter. NOTE: we deliberately
+  // do NOT compare scope.files here — fixing a file removes it from the
+  // diff between rounds while the underlying scope is unchanged.
+  // pathFilters is the user's intent, not the diff's content.
+  const existingFilters = [...(existingScope.pathFilters ?? [])].sort().join("|");
+  const newFilters = [...(newScope.pathFilters ?? [])].sort().join("|");
+  if (existingFilters !== newFilters) {
     return true;
   }
   return false;
@@ -280,7 +285,23 @@ export class SessionManager {
               );
             } catch (e) {
               if (e instanceof ConcurrentInstanceError) throw e;
-              // Process doesn't exist — stale lock, safe to overwrite
+              // EPERM means the process exists but is owned by another user
+              // — still a live lock, not a stale one. Only ESRCH (no such
+              // process) means the holder is gone and the lock is safe to
+              // overwrite. Other error codes are treated conservatively as
+              // "live" too.
+              const code =
+                e && typeof e === "object" && "code" in e
+                  ? (e as NodeJS.ErrnoException).code
+                  : undefined;
+              if (code !== "ESRCH") {
+                throw new ConcurrentInstanceError(
+                  `Another review-orchestra instance is running (PID ${pid}, ` +
+                    `signal check returned ${code ?? "unknown"}). ` +
+                    `Delete ${this.lockFile} if this is incorrect.`,
+                );
+              }
+              // ESRCH — process gone, stale lock, safe to overwrite
             }
           }
         } catch (e) {

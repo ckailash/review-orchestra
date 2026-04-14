@@ -561,6 +561,31 @@ describe("Orchestrator", () => {
       expect(result.round).toBe(1);
     });
 
+    it("does not mark findings as persisted when appendFindings throws (so a retry will retry the write)", async () => {
+      const { createReviewers } = await import("../src/reviewers/index");
+
+      vi.mocked(createReviewers).mockReturnValue([
+        {
+          name: "mock-reviewer",
+          review: vi.fn().mockResolvedValue({ findings: [makeFinding()], rawOutput: "raw" }),
+        },
+      ]);
+
+      vi.mocked(appendFindings).mockImplementation(() => {
+        throw new Error("EACCES: permission denied");
+      });
+
+      const config = loadConfig({ thresholds: { stopAt: "p1" } });
+      const orchestrator = new Orchestrator(config, TEST_STATE_DIR);
+      await orchestrator.run(mockScope);
+
+      // Read session.json directly to inspect persistence flag
+      const sessionRaw = readFileSync(join(TEST_STATE_DIR, "session.json"), "utf-8");
+      const session = JSON.parse(sessionRaw);
+      const round = session.rounds[session.rounds.length - 1];
+      expect(round.findingsPersisted).not.toBe(true);
+    });
+
     it("backfill failure does not crash the review", async () => {
       const { createReviewers } = await import("../src/reviewers/index");
 

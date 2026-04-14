@@ -142,6 +142,44 @@ describe("cli main()", () => {
     expect(mockOrchestratorRun).toHaveBeenCalledWith(defaultScope);
   });
 
+  it("preserves an argv path token containing a literal double-quote", async () => {
+    // Regression for r2-f-005 round-3 follow-up: a path token like
+    // src/foo"bar would previously have its embedded quote escaped into
+    // the join, then mis-tokenize into multiple tokens. The CLI should
+    // pass the path through unchanged to detectScope.
+    process.argv = ["node", "cli", "review", 'src/foo"bar/file.ts'];
+    setupReviewMocks();
+
+    await runCli();
+
+    const detectArgs = mockDetectScope.mock.calls[0];
+    expect(detectArgs[0]).toEqual(['src/foo"bar/file.ts']);
+  });
+
+  it("preserves an argv path token containing both whitespace AND a literal double-quote", async () => {
+    // The escaping branch — wraps the token in quotes and escapes the
+    // embedded quote — must round-trip via the parser without losing the
+    // original characters or splitting the token.
+    process.argv = ["node", "cli", "review", 'src/My Dir/file"bar.ts'];
+    setupReviewMocks();
+
+    await runCli();
+
+    const detectArgs = mockDetectScope.mock.calls[0];
+    expect(detectArgs[0]).toEqual(['src/My Dir/file"bar.ts']);
+  });
+
+  it("loads the config from disk only once per review (no double cascade read)", async () => {
+    process.argv = ["node", "cli", "review", "only", "claude"];
+    setupReviewMocks();
+
+    await runCli();
+
+    // Even when overrides are present, the config cascade should be read
+    // exactly once — overrides are merged in-memory.
+    expect(mockLoadConfig).toHaveBeenCalledTimes(1);
+  });
+
   it("reset subcommand removes .review-orchestra/ when it exists", async () => {
     process.argv = ["node", "cli", "reset"];
     mockExistsSync.mockReturnValue(true);

@@ -272,6 +272,35 @@ describe("GenericReviewer", () => {
     expect(spawnCall.input).toContain("review prompt");
   });
 
+  it("strips nested-session env vars (CLAUDECODE, CLAUDE_CODE_ENTRYPOINT, CLAUDE_CODE_SSE_PORT)", async () => {
+    process.env.CLAUDECODE = "1";
+    process.env.CLAUDE_CODE_ENTRYPOINT = "cli";
+    process.env.CLAUDE_CODE_SSE_PORT = "12345";
+
+    vi.mocked(spawnWithStreaming).mockResolvedValue(validFindingsJson);
+
+    const config = loadConfig({
+      reviewers: {
+        claude: { enabled: false },
+        codex: { enabled: false },
+        custom: { enabled: true, command: "my-reviewer --json" },
+      },
+    });
+
+    const reviewers = createReviewers(config, "/tmp/test-state");
+    await reviewers[0].review("review prompt", mockScope);
+
+    const spawnCall = vi.mocked(spawnWithStreaming).mock.calls[0][0];
+    expect(spawnCall.env).toBeDefined();
+    expect(spawnCall.env!.CLAUDECODE).toBeUndefined();
+    expect(spawnCall.env!.CLAUDE_CODE_ENTRYPOINT).toBeUndefined();
+    expect(spawnCall.env!.CLAUDE_CODE_SSE_PORT).toBeUndefined();
+
+    delete process.env.CLAUDECODE;
+    delete process.env.CLAUDE_CODE_ENTRYPOINT;
+    delete process.env.CLAUDE_CODE_SSE_PORT;
+  });
+
   it("substitutes {prompt} in args when placeholder exists", async () => {
     vi.mocked(spawnWithStreaming).mockResolvedValue(validFindingsJson);
 

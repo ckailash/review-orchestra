@@ -322,6 +322,34 @@ describe("detectScope", () => {
       );
     });
 
+    it("uses double-dot range for git log even when the user supplied a triple-dot range", () => {
+      // Regression for r3-f-010: previously the log call passed the same
+      // separator as the diff (so `A...B` would invoke
+      // `git log --oneline A...B`, which lists symmetric-difference
+      // commits — unrelated history rather than just the range B is
+      // adding). For commit messages we want the linear A..B set.
+      let logCmdSeen: string | null = null;
+      mockExecFile.mockImplementation((...args: unknown[]) => {
+        const cmd = argsToCmd(args);
+        if (cmd === "git rev-parse --verify abc1234") return "abc1234\n";
+        if (cmd === "git rev-parse --verify def5678") return "def5678\n";
+        if (cmd === "git diff abc1234...def5678 --name-only -z") {
+          return "src/foo.ts\0";
+        }
+        if (cmd === "git diff abc1234...def5678") {
+          return "diff --git a/src/foo.ts b/src/foo.ts\n+changed\n";
+        }
+        if (cmd.startsWith("git log --oneline")) {
+          logCmdSeen = cmd;
+          return "def5678 add feature\n";
+        }
+        return "";
+      });
+
+      detectScope([], "abc1234...def5678");
+      expect(logCmdSeen).toBe("git log --oneline abc1234..def5678");
+    });
+
     it("sets commitMessages to undefined when git log fails on fresh repo", () => {
       mockExecFile.mockImplementation((...args: unknown[]) => {
         const cmd = argsToCmd(args);

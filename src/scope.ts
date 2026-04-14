@@ -157,7 +157,13 @@ export function detectScope(
 
     let commitMessages: string | undefined;
     try {
-      const logOutput = git("log", "--oneline", `${from}${separator}${to}`);
+      // Always use the double-dot range for log, even when the user gave
+      // us a triple-dot diff range. `git log A..B` lists commits reachable
+      // from B but not A (the linear set the range introduces); `git log
+      // A...B` would list the symmetric difference — both branches'
+      // independent history — which is not what we want for commit
+      // messages.
+      const logOutput = git("log", "--oneline", `${from}..${to}`);
       commitMessages = logOutput || undefined;
     } catch {
       commitMessages = undefined;
@@ -178,6 +184,7 @@ export function detectScope(
       description: `Changes in ${description}`,
       commitMessages,
       baseCommitSha,
+      pathFilters: safePaths,
     };
   }
 
@@ -243,6 +250,7 @@ export function detectScope(
       description: `Uncommitted changes on ${branch}`,
       commitMessages,
       baseCommitSha,
+      pathFilters: safePaths,
     };
   }
 
@@ -286,6 +294,7 @@ export function detectScope(
           description: `Branch ${branch} vs ${baseBranch}`,
           commitMessages,
           baseCommitSha,
+          pathFilters: safePaths,
         };
       }
     }

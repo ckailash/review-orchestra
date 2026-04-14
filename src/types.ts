@@ -48,6 +48,13 @@ export interface DiffScope {
   description: string;
   commitMessages?: string;
   baseCommitSha?: string;
+  /**
+   * The user-supplied path filter from CLI args, normalised. Distinct from
+   * `files` (which is the actual diff output and naturally drifts between
+   * rounds as fixes land). Used by SessionManager to detect when the user
+   * has narrowed/changed the scope and the session should expire.
+   */
+  pathFilters?: string[];
 }
 
 // Round tracking

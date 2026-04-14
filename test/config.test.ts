@@ -267,4 +267,67 @@ describe("config cascade (global → project)", () => {
     expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("invalid JSON"));
     errorSpy.mockRestore();
   });
+
+  describe("runtime validation of user-supplied values", () => {
+    afterEach(() => {
+      mockConfigOverride.globalJson = null;
+      mockConfigOverride.projectJson = null;
+    });
+
+    it("rejects an unknown thresholds.stopAt with a clear error", () => {
+      mockConfigOverride.projectJson = JSON.stringify({
+        thresholds: { stopAt: "p99" },
+      });
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const config = loadConfig();
+      expect(config.thresholds.stopAt).toBe("p1"); // falls back to default
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('thresholds.stopAt'),
+      );
+      errorSpy.mockRestore();
+    });
+
+    it("rejects an unknown findingComparison.method with a clear error", () => {
+      mockConfigOverride.projectJson = JSON.stringify({
+        findingComparison: { method: "magic" },
+      });
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const config = loadConfig();
+      expect(config.findingComparison?.method).toBe(
+        DEFAULT_FINDING_COMPARISON_CONFIG.method,
+      );
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining("findingComparison.method"),
+      );
+      errorSpy.mockRestore();
+    });
+
+    it("rejects an unknown findingComparison.fallback with a clear error", () => {
+      mockConfigOverride.projectJson = JSON.stringify({
+        findingComparison: { fallback: "panic" },
+      });
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const config = loadConfig();
+      expect(config.findingComparison?.fallback).toBe(
+        DEFAULT_FINDING_COMPARISON_CONFIG.fallback,
+      );
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining("findingComparison.fallback"),
+      );
+      errorSpy.mockRestore();
+    });
+
+    it("rejects a reviewer.outputFormat that isn't json or text", () => {
+      mockConfigOverride.projectJson = JSON.stringify({
+        reviewers: { claude: { outputFormat: "yaml" } },
+      });
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const config = loadConfig();
+      expect(config.reviewers.claude.outputFormat).toBe("json"); // default
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining("outputFormat"),
+      );
+      errorSpy.mockRestore();
+    });
+  });
 });

@@ -1,6 +1,46 @@
 import { spawn } from "child_process";
 import { log } from "./log";
 
+// Bare binary name: alphanumerics, dots, underscores, hyphens. Path
+// separators are NOT allowed here — those go through the absolute-path
+// branch below.
+const BARE_BIN_PATTERN = /^[a-zA-Z0-9._-]+$/;
+
+// Path-traversal segments (`..` as a full segment in a path) are rejected
+// even within absolute paths so a config can't quietly walk out of an
+// expected directory.
+const PATH_TRAVERSAL_PATTERN = /(^|[\\/])\.\.([\\/]|$)/;
+
+function looksLikeAbsolutePath(bin: string): boolean {
+  if (bin.startsWith("/")) return true;
+  // Windows: drive-letter (C:\... or C:/...) and UNC (\\server\share)
+  if (/^[a-zA-Z]:[\\/]/.test(bin)) return true;
+  if (bin.startsWith("\\\\")) return true;
+  return false;
+}
+
+/**
+ * Decide whether a `bin` value is safe to pass to `spawn`. We accept two
+ * shapes:
+ *  - a bare name matching BARE_BIN_PATTERN, or
+ *  - an absolute path (Unix `/...`, Windows `C:\...`, UNC `\\...`) that
+ *    is free of shell metacharacters and path-traversal segments.
+ *
+ * `spawn` itself does not invoke a shell, so this check is defence in
+ * depth against a malicious config rather than a strict requirement, but
+ * it keeps the surface area small.
+ */
+function isAcceptableBin(bin: string): boolean {
+  if (looksLikeAbsolutePath(bin)) {
+    if (PATH_TRAVERSAL_PATTERN.test(bin)) return false;
+    // Reject characters that could be misinterpreted by a shell or that
+    // are not valid in any realistic path (NUL, control chars).
+    if (/[\x00-\x1f"`$|;&<>*?]/.test(bin)) return false;
+    return true;
+  }
+  return BARE_BIN_PATTERN.test(bin);
+}
+
 const DEFAULT_CATASTROPHIC_TIMEOUT = 30 * 60 * 1000; // 30 minutes
 const DEFAULT_INACTIVITY_TIMEOUT = 10 * 60 * 1000; // 10 minutes
 
@@ -32,7 +72,7 @@ export function spawnWithStreaming(opts: SpawnOptions): Promise<string> {
     inactivityTimeout = DEFAULT_INACTIVITY_TIMEOUT,
   } = opts;
 
-  if (!/^[a-zA-Z0-9._\-/]+$/.test(bin)) {
+  if (!isAcceptableBin(bin)) {
     return Promise.reject(new Error(`${label}: invalid binary name: ${bin}`));
   }
 

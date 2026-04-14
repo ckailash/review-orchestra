@@ -44,7 +44,94 @@ export const DEFAULT_CONFIG: Config = deepFreeze({
   findingComparison: DEFAULT_FINDING_COMPARISON_CONFIG,
 });
 
+const VALID_PLEVELS: ReadonlySet<string> = new Set(["p0", "p1", "p2", "p3"]);
+const VALID_FC_METHODS: ReadonlySet<string> = new Set(["llm", "heuristic"]);
+const VALID_FC_FALLBACKS: ReadonlySet<string> = new Set(["heuristic", "error"]);
+const VALID_OUTPUT_FORMATS: ReadonlySet<string> = new Set(["json", "text"]);
+
+function warnInvalid(label: string, message: string): void {
+  console.error(
+    `[review-orchestra] warning: ${label} — ${message}; using default value`,
+  );
+}
+
+/**
+ * Validate user-supplied config values against the allowed shapes.
+ * Invalid fields are stripped from the parsed object (in-place) so the
+ * subsequent merge falls back to the base/default values, and a warning
+ * is printed for each rejection. This catches typos like
+ * `thresholds.stopAt: "p99"` at config-load time rather than as a
+ * confusing failure deeper in the pipeline.
+ */
+function validateAndStripInvalid(parsed: Record<string, unknown>): void {
+  if (parsed.thresholds && typeof parsed.thresholds === "object") {
+    const t = parsed.thresholds as Record<string, unknown>;
+    if (t.stopAt !== undefined && (typeof t.stopAt !== "string" || !VALID_PLEVELS.has(t.stopAt))) {
+      warnInvalid(
+        "thresholds.stopAt",
+        `must be one of p0, p1, p2, p3 (got ${JSON.stringify(t.stopAt)})`,
+      );
+      delete t.stopAt;
+    }
+  }
+
+  if (parsed.findingComparison && typeof parsed.findingComparison === "object") {
+    const fc = parsed.findingComparison as Record<string, unknown>;
+    if (fc.method !== undefined && (typeof fc.method !== "string" || !VALID_FC_METHODS.has(fc.method))) {
+      warnInvalid(
+        "findingComparison.method",
+        `must be \"llm\" or \"heuristic\" (got ${JSON.stringify(fc.method)})`,
+      );
+      delete fc.method;
+    }
+    if (fc.fallback !== undefined && (typeof fc.fallback !== "string" || !VALID_FC_FALLBACKS.has(fc.fallback))) {
+      warnInvalid(
+        "findingComparison.fallback",
+        `must be \"heuristic\" or \"error\" (got ${JSON.stringify(fc.fallback)})`,
+      );
+      delete fc.fallback;
+    }
+    if (fc.timeoutMs !== undefined && (typeof fc.timeoutMs !== "number" || fc.timeoutMs <= 0)) {
+      warnInvalid(
+        "findingComparison.timeoutMs",
+        `must be a positive number (got ${JSON.stringify(fc.timeoutMs)})`,
+      );
+      delete fc.timeoutMs;
+    }
+    if (fc.model !== undefined && typeof fc.model !== "string") {
+      warnInvalid(
+        "findingComparison.model",
+        `must be a string (got ${JSON.stringify(fc.model)})`,
+      );
+      delete fc.model;
+    }
+  }
+
+  if (parsed.reviewers && typeof parsed.reviewers === "object") {
+    for (const [name, raw] of Object.entries(parsed.reviewers as Record<string, unknown>)) {
+      if (!raw || typeof raw !== "object") continue;
+      const r = raw as Record<string, unknown>;
+      if (r.outputFormat !== undefined && (typeof r.outputFormat !== "string" || !VALID_OUTPUT_FORMATS.has(r.outputFormat))) {
+        warnInvalid(
+          `reviewers.${name}.outputFormat`,
+          `must be \"json\" or \"text\" (got ${JSON.stringify(r.outputFormat)})`,
+        );
+        delete r.outputFormat;
+      }
+      if (r.enabled !== undefined && typeof r.enabled !== "boolean") {
+        warnInvalid(
+          `reviewers.${name}.enabled`,
+          `must be a boolean (got ${JSON.stringify(r.enabled)})`,
+        );
+        delete r.enabled;
+      }
+    }
+  }
+}
+
 function mergeConfig(base: Config, parsed: Record<string, unknown>): Config {
+  validateAndStripInvalid(parsed);
+
   const reviewers: Record<string, ReviewerConfig> = {};
   for (const [name, cfg] of Object.entries(base.reviewers)) {
     reviewers[name] = { ...cfg };

@@ -7,6 +7,7 @@ import { buildReviewPrompt } from "./prompt";
 import { parseCommand } from "./command";
 import { log, logCommand, logTiming } from "../log";
 import { spawnWithStreaming } from "../process";
+import { stripNestedSessionEnv } from "../nested-session-env";
 
 export function createReviewers(config: Config, stateDir: string): Reviewer[] {
   const reviewers: Reviewer[] = [];
@@ -59,9 +60,9 @@ class GenericReviewer implements Reviewer {
       args.push("--model", this.config.model);
     }
 
-    // Strip CLAUDECODE env var so headless processes don't think they're nested sessions
-    const env = { ...process.env };
-    delete env.CLAUDECODE;
+    // Strip nested-session env so headless processes don't behave as a
+    // nested Claude Code session.
+    const env = stripNestedSessionEnv();
 
     logCommand(`${this.name}: invoking`, bin, args);
     log(`${this.name}: reviewing ${scope.files.length} files`);

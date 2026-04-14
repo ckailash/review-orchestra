@@ -51,6 +51,53 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+describe("spawnWithStreaming binary validation", () => {
+  it("rejects bare names with shell metacharacters", async () => {
+    await expect(
+      spawnWithStreaming({ ...baseOpts, bin: "echo;rm -rf /" }),
+    ).rejects.toThrow(/invalid binary/);
+  });
+
+  it("rejects path-traversal segments in absolute paths", async () => {
+    await expect(
+      spawnWithStreaming({ ...baseOpts, bin: "/usr/local/../../etc/passwd" }),
+    ).rejects.toThrow(/invalid binary/);
+  });
+
+  it("accepts a Windows-style absolute path with a drive letter", async () => {
+    const child = createFakeChild();
+    vi.mocked(spawn).mockReturnValue(child as never);
+
+    const promise = spawnWithStreaming({
+      ...baseOpts,
+      bin: "C:\\Program Files\\Codex\\codex.exe",
+    });
+    child.emit("close", 0);
+    await expect(promise).resolves.toBeDefined();
+  });
+
+  it("accepts a Unix-style absolute path with spaces", async () => {
+    const child = createFakeChild();
+    vi.mocked(spawn).mockReturnValue(child as never);
+
+    const promise = spawnWithStreaming({
+      ...baseOpts,
+      bin: "/Applications/My Tool/codex",
+    });
+    child.emit("close", 0);
+    await expect(promise).resolves.toBeDefined();
+  });
+
+  it("accepts a bare name", async () => {
+    const child = createFakeChild();
+    vi.mocked(spawn).mockReturnValue(child as never);
+
+    const promise = spawnWithStreaming({ ...baseOpts, bin: "claude" });
+    child.emit("close", 0);
+    await expect(promise).resolves.toBeDefined();
+  });
+});
+
 describe("spawnWithStreaming", () => {
   it("successful exit resolves with stdout", async () => {
     const child = createFakeChild();
