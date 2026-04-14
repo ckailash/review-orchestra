@@ -17,23 +17,48 @@ export interface CheckResult {
 // --- Low-level helpers ---
 
 /**
- * Regex for validating binary references passed to `which`. Accepts bare
- * names (e.g. `claude`) and absolute paths (e.g. `/usr/local/bin/claude`),
- * since users may configure reviewer commands with absolute paths. Rejects
- * shell metacharacters (space, quotes, `;`, `|`, `&`, `$`, backticks, etc.)
- * so an attacker-influenced config cannot turn a PATH lookup into a shell
- * injection vector.
+ * Regex for validating bare binary names passed to a PATH lookup tool.
+ * Accepts only alphanumerics, dots, underscores, and hyphens — the
+ * intersection of safe characters across platforms. Rejects shell
+ * metacharacters so an attacker-influenced config cannot turn a PATH
+ * lookup into a shell injection vector.
+ *
+ * Absolute paths are NOT validated by this pattern — they are recognised
+ * directly by `binaryExists` via filesystem checks (which works on every
+ * platform; `which`/`where` lookups for absolute paths are not portable).
  */
-export const VALID_BINARY_PATTERN = /^[a-zA-Z0-9._\-/]+$/;
+export const VALID_BINARY_PATTERN = /^[a-zA-Z0-9._-]+$/;
+
+const IS_WINDOWS = process.platform === "win32";
+const PATH_LOOKUP_TOOL = IS_WINDOWS ? "where" : "which";
+
+function looksLikeAbsolutePath(binary: string): boolean {
+  if (binary.startsWith("/")) return true;
+  // Windows: drive-letter paths (C:\...) and UNC paths (\\server\share)
+  if (IS_WINDOWS && /^[a-zA-Z]:[\\/]/.test(binary)) return true;
+  if (IS_WINDOWS && binary.startsWith("\\\\")) return true;
+  return false;
+}
 
 /**
- * Check whether a binary exists on PATH using `which`.
- * Returns false for invalid binary names (shell metacharacters).
+ * Check whether a binary exists, either on PATH or at an absolute path.
+ *
+ * - Bare names go through the platform PATH lookup tool (`which` on Unix,
+ *   `where` on Windows) after passing VALID_BINARY_PATTERN.
+ * - Absolute paths are resolved directly via `fs.existsSync` so they work
+ *   uniformly across platforms (and `which` on macOS/Linux happens to
+ *   accept absolute paths, but `where` on Windows does not).
+ *
+ * Returns false for binary names with shell metacharacters or for paths
+ * that don't resolve to an existing entry.
  */
 export function binaryExists(binary: string): boolean {
+  if (looksLikeAbsolutePath(binary)) {
+    return existsSync(binary);
+  }
   if (!VALID_BINARY_PATTERN.test(binary)) return false;
   try {
-    execFileSync("which", [binary], { stdio: "pipe" });
+    execFileSync(PATH_LOOKUP_TOOL, [binary], { stdio: "pipe" });
     return true;
   } catch {
     return false;

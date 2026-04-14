@@ -93,8 +93,9 @@ describe("spawnWithStreaming", () => {
 
     const promise = spawnWithStreaming({ ...baseOpts, input: "my input data" });
 
-    expect(child.stdin.write).toHaveBeenCalledWith("my input data");
-    expect(child.stdin.end).toHaveBeenCalled();
+    // The implementation hands the payload to stdin.end() so Node can
+    // apply backpressure for large inputs.
+    expect(child.stdin.end).toHaveBeenCalledWith("my input data");
 
     child.emit("close", 0);
     await promise;

@@ -27,9 +27,9 @@ describe("detectScope", () => {
     it("detects staged + unstaged changes", () => {
       mockExecFile.mockImplementation((...args: unknown[]) => {
         const cmd = argsToCmd(args);
-        if (cmd === "git diff --name-only") return "src/foo.ts\n";
-        if (cmd === "git diff --cached --name-only") return "src/bar.ts\n";
-        if (cmd === "git ls-files --others --exclude-standard") return "";
+        if (cmd === "git diff --name-only -z") return "src/foo.ts\n";
+        if (cmd === "git diff --cached --name-only -z") return "src/bar.ts\n";
+        if (cmd === "git ls-files -z --others --exclude-standard") return "";
         if (cmd === "git diff HEAD") {
           return "diff --git a/src/foo.ts b/src/foo.ts\n--- a/src/foo.ts\n+++ b/src/foo.ts\n@@ -1,3 +1,4 @@\n+added line\n";
         }
@@ -51,9 +51,9 @@ describe("detectScope", () => {
       mockExecFile.mockImplementation((...args: unknown[]) => {
         const cmd = argsToCmd(args);
         // No uncommitted changes
-        if (cmd === "git diff --name-only") return "";
-        if (cmd === "git diff --cached --name-only") return "";
-        if (cmd === "git ls-files --others --exclude-standard") return "";
+        if (cmd === "git diff --name-only -z") return "";
+        if (cmd === "git diff --cached --name-only -z") return "";
+        if (cmd === "git ls-files -z --others --exclude-standard") return "";
         // On a feature branch
         if (cmd === "git rev-parse --abbrev-ref HEAD") {
           return "feat/auth\n";
@@ -68,8 +68,8 @@ describe("detectScope", () => {
           return "abc1234 add auth\ndef5678 add middleware\n";
         }
         // Branch diff files
-        if (cmd === "git diff main...HEAD --name-only") {
-          return "src/auth/middleware.ts\nsrc/auth/login.ts\n";
+        if (cmd === "git diff main...HEAD --name-only -z") {
+          return "src/auth/middleware.ts\0src/auth/login.ts\0";
         }
         // Branch diff content
         if (cmd === "git diff main...HEAD") {
@@ -93,9 +93,9 @@ describe("detectScope", () => {
     it("filters detected files to only specified paths", () => {
       mockExecFile.mockImplementation((...args: unknown[]) => {
         const cmd = argsToCmd(args);
-        if (cmd === "git diff --name-only") return "";
-        if (cmd === "git diff --cached --name-only") return "";
-        if (cmd === "git ls-files --others --exclude-standard") return "";
+        if (cmd === "git diff --name-only -z") return "";
+        if (cmd === "git diff --cached --name-only -z") return "";
+        if (cmd === "git ls-files -z --others --exclude-standard") return "";
         if (cmd === "git rev-parse --abbrev-ref HEAD") {
           return "feat/auth\n";
         }
@@ -106,8 +106,8 @@ describe("detectScope", () => {
         if (cmd === "git log main..HEAD --oneline") {
           return "abc1234 add auth\n";
         }
-        if (cmd === "git diff main...HEAD --name-only") {
-          return "src/auth/middleware.ts\nsrc/auth/login.ts\nsrc/api/routes.ts\n";
+        if (cmd === "git diff main...HEAD --name-only -z") {
+          return "src/auth/middleware.ts\0src/auth/login.ts\0src/api/routes.ts\0";
         }
         if (cmd === "git diff main...HEAD") {
           return "full diff content";
@@ -128,11 +128,11 @@ describe("detectScope", () => {
     it("detects uncommitted changes even on main", () => {
       mockExecFile.mockImplementation((...args: unknown[]) => {
         const cmd = argsToCmd(args);
-        if (cmd === "git diff --name-only") {
+        if (cmd === "git diff --name-only -z") {
           return "src/index.ts\n";
         }
-        if (cmd === "git diff --cached --name-only") return "";
-        if (cmd === "git ls-files --others --exclude-standard") return "";
+        if (cmd === "git diff --cached --name-only -z") return "";
+        if (cmd === "git ls-files -z --others --exclude-standard") return "";
         if (cmd === "git diff HEAD") {
           return "diff content on main";
         }
@@ -152,9 +152,9 @@ describe("detectScope", () => {
     it("populates baseCommitSha for uncommitted scope", () => {
       mockExecFile.mockImplementation((...args: unknown[]) => {
         const cmd = argsToCmd(args);
-        if (cmd === "git diff --name-only") return "src/foo.ts\n";
-        if (cmd === "git diff --cached --name-only") return "";
-        if (cmd === "git ls-files --others --exclude-standard") return "";
+        if (cmd === "git diff --name-only -z") return "src/foo.ts\n";
+        if (cmd === "git diff --cached --name-only -z") return "";
+        if (cmd === "git ls-files -z --others --exclude-standard") return "";
         if (cmd === "git diff HEAD") {
           return "diff --git a/src/foo.ts b/src/foo.ts\n--- a/src/foo.ts\n+++ b/src/foo.ts\n@@ -1,3 +1,4 @@\n+added line\n";
         }
@@ -174,9 +174,9 @@ describe("detectScope", () => {
     it("throws when there is nothing to review", () => {
       mockExecFile.mockImplementation((...args: unknown[]) => {
         const cmd = argsToCmd(args);
-        if (cmd === "git diff --name-only") return "";
-        if (cmd === "git diff --cached --name-only") return "";
-        if (cmd === "git ls-files --others --exclude-standard") return "";
+        if (cmd === "git diff --name-only -z") return "";
+        if (cmd === "git diff --cached --name-only -z") return "";
+        if (cmd === "git ls-files -z --others --exclude-standard") return "";
         if (cmd === "git rev-parse --abbrev-ref HEAD") {
           return "main\n";
         }
@@ -194,9 +194,9 @@ describe("detectScope", () => {
       const largeDiff = "x".repeat(512 * 1024 + 1);
       mockExecFile.mockImplementation((...args: unknown[]) => {
         const cmd = argsToCmd(args);
-        if (cmd === "git diff --name-only") return "src/big.ts\n";
-        if (cmd === "git diff --cached --name-only") return "";
-        if (cmd === "git ls-files --others --exclude-standard") return "";
+        if (cmd === "git diff --name-only -z") return "src/big.ts\n";
+        if (cmd === "git diff --cached --name-only -z") return "";
+        if (cmd === "git ls-files -z --others --exclude-standard") return "";
         if (cmd === "git diff HEAD") return largeDiff;
         if (cmd === "git rev-parse --abbrev-ref HEAD") return "main\n";
         if (cmd.startsWith("git log")) return "";
@@ -211,9 +211,9 @@ describe("detectScope", () => {
     it("includes untracked files in uncommitted scope", () => {
       mockExecFile.mockImplementation((...args: unknown[]) => {
         const cmd = argsToCmd(args);
-        if (cmd === "git diff --name-only") return "";
-        if (cmd === "git diff --cached --name-only") return "";
-        if (cmd === "git ls-files --others --exclude-standard") return "new-file.ts\n";
+        if (cmd === "git diff --name-only -z") return "";
+        if (cmd === "git diff --cached --name-only -z") return "";
+        if (cmd === "git ls-files -z --others --exclude-standard") return "new-file.ts\n";
         // HEAD diff covers tracked files — empty since no tracked changes
         if (cmd === "git diff HEAD") return "";
         if (cmd === "git rev-parse --abbrev-ref HEAD") return "main\n";
@@ -249,9 +249,9 @@ describe("detectScope", () => {
     it("populates commitMessages for branch scope", () => {
       mockExecFile.mockImplementation((...args: unknown[]) => {
         const cmd = argsToCmd(args);
-        if (cmd === "git diff --name-only") return "";
-        if (cmd === "git diff --cached --name-only") return "";
-        if (cmd === "git ls-files --others --exclude-standard") return "";
+        if (cmd === "git diff --name-only -z") return "";
+        if (cmd === "git diff --cached --name-only -z") return "";
+        if (cmd === "git ls-files -z --others --exclude-standard") return "";
         if (cmd === "git rev-parse --abbrev-ref HEAD") return "feat/auth\n";
         if (cmd === "git symbolic-ref refs/remotes/origin/HEAD") {
           throw new Error("not set");
@@ -260,8 +260,8 @@ describe("detectScope", () => {
         if (cmd === "git log main..HEAD --oneline") {
           return "abc1234 add auth\ndef5678 add middleware\n";
         }
-        if (cmd === "git diff main...HEAD --name-only") {
-          return "src/auth/middleware.ts\n";
+        if (cmd === "git diff main...HEAD --name-only -z") {
+          return "src/auth/middleware.ts\0";
         }
         if (cmd === "git diff main...HEAD") {
           return "diff --git a/src/auth/middleware.ts b/src/auth/middleware.ts\n+new auth code\n";
@@ -279,9 +279,9 @@ describe("detectScope", () => {
     it("populates commitMessages for uncommitted scope", () => {
       mockExecFile.mockImplementation((...args: unknown[]) => {
         const cmd = argsToCmd(args);
-        if (cmd === "git diff --name-only") return "src/foo.ts\n";
-        if (cmd === "git diff --cached --name-only") return "";
-        if (cmd === "git ls-files --others --exclude-standard") return "";
+        if (cmd === "git diff --name-only -z") return "src/foo.ts\n";
+        if (cmd === "git diff --cached --name-only -z") return "";
+        if (cmd === "git ls-files -z --others --exclude-standard") return "";
         if (cmd === "git diff HEAD") {
           return "diff --git a/src/foo.ts b/src/foo.ts\n+added line\n";
         }
@@ -303,8 +303,8 @@ describe("detectScope", () => {
       mockExecFile.mockImplementation((...args: unknown[]) => {
         const cmd = argsToCmd(args);
         if (cmd === "git rev-parse --verify abc1234") return "abc1234\n";
-        if (cmd === "git diff abc1234..HEAD --name-only") {
-          return "src/foo.ts\n";
+        if (cmd === "git diff abc1234..HEAD --name-only -z") {
+          return "src/foo.ts\0";
         }
         if (cmd === "git diff abc1234..HEAD") {
           return "diff --git a/src/foo.ts b/src/foo.ts\n+changed\n";
@@ -325,9 +325,9 @@ describe("detectScope", () => {
     it("sets commitMessages to undefined when git log fails on fresh repo", () => {
       mockExecFile.mockImplementation((...args: unknown[]) => {
         const cmd = argsToCmd(args);
-        if (cmd === "git diff --name-only") return "src/foo.ts\n";
-        if (cmd === "git diff --cached --name-only") return "";
-        if (cmd === "git ls-files --others --exclude-standard") return "";
+        if (cmd === "git diff --name-only -z") return "src/foo.ts\n";
+        if (cmd === "git diff --cached --name-only -z") return "";
+        if (cmd === "git ls-files -z --others --exclude-standard") return "";
         // HEAD doesn't exist on fresh repo — fall back to --cached
         if (cmd === "git diff HEAD") throw new Error("bad revision HEAD");
         if (cmd === "git diff --cached") {

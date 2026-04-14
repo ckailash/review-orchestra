@@ -104,10 +104,14 @@ export function spawnWithStreaming(opts: SpawnOptions): Promise<string> {
     // before consuming stdin) is absorbed here — the close handler below
     // reports the non-zero exit/signal as a rejected promise.
     child.stdin?.on("error", () => {});
-    if (input) {
-      child.stdin?.write(input);
+    if (input && child.stdin) {
+      // Use Writable.end(chunk) so Node handles backpressure for us:
+      // for large payloads it buffers and drains correctly rather than
+      // forcing a synchronous write that ignores the high-water mark.
+      child.stdin.end(input);
+    } else {
+      child.stdin?.end();
     }
-    child.stdin?.end();
 
     child.on("close", (code, signal) => {
       cleanup();

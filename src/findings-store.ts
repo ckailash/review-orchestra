@@ -83,6 +83,11 @@ export function appendFindings(options: AppendFindingsOptions): void {
  * Empty resolvedFindings array is a no-op.
  * Missing file is a no-op.
  * Already-resolved entries (resolved_in_round !== null) are skipped.
+ *
+ * Cost: O(n) read + write of the entire JSONL on each call. Acceptable for
+ * the typical "tens of findings per round, single-digit rounds per
+ * project" workload; revisit with an index/append-update format if the
+ * store grows into the hundreds of thousands of lines.
  */
 export function backfillResolved(options: BackfillResolvedOptions): void {
   const { resolvedFindings, sessionId, resolvedInRound, project } = options;
@@ -99,6 +104,30 @@ export function backfillResolved(options: BackfillResolvedOptions): void {
 
   const lines = content.split("\n");
   const resolvedIds = new Set(resolvedFindings.map((f) => f.id));
+
+  // Fast path: scan once to confirm at least one matching entry exists
+  // before doing a full parse/serialise rewrite. For a project with many
+  // rounds and most calls being no-ops, this avoids paying the rewrite
+  // cost when nothing matches.
+  let hasMatch = false;
+  for (const line of lines) {
+    let entry: JsonlEntry;
+    try {
+      entry = JSON.parse(line) as JsonlEntry;
+    } catch {
+      continue;
+    }
+    if (
+      entry.sessionId === sessionId &&
+      entry.project === project &&
+      resolvedIds.has(entry.finding.id) &&
+      entry.resolved_in_round === null
+    ) {
+      hasMatch = true;
+      break;
+    }
+  }
+  if (!hasMatch) return;
 
   let modified = false;
   const updatedLines = lines.map((line) => {

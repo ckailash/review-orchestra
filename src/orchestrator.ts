@@ -159,7 +159,6 @@ export class Orchestrator {
       const consolidated = consolidate(allFindings, scope.diff);
       const consolElapsed = Date.now() - consolStart;
       this.state.saveConsolidated(consolidated);
-      this.callbacks.onConsolidated?.(consolidated);
       const timingsPart =
         timings.length > 0
           ? timings
@@ -177,33 +176,45 @@ export class Orchestrator {
       const { findings: comparedFindings, resolvedFindings } =
         await assignFindingIds(currentConsolidated, previousFindings, round.number, this.config.findingComparison);
 
-      // Update consolidated findings with IDs and statuses
+      // Update consolidated findings with IDs and statuses, then notify
+      // callbacks with the comparison-resolved findings (round-scoped IDs +
+      // new/persisting status set).
       this.state.saveConsolidated(comparedFindings);
+      this.callbacks.onConsolidated?.(comparedFindings);
 
-      // Persist findings to ~/.review-orchestra/findings.jsonl
+      // Persist findings to ~/.review-orchestra/findings.jsonl. Skip on
+      // crash-recovery re-execution to avoid double-writing the same round
+      // (the appended entries would be duplicates with new IDs).
       const sessionState = this.state.getState();
-      try {
-        appendFindings({
-          findings: comparedFindings,
-          sessionId: sessionState.sessionId,
-          round: round.number,
-          project: process.cwd(),
-        });
-      } catch (err) {
-        log(`warning: failed to append findings: ${err instanceof Error ? err.message : String(err)}`);
-      }
+      const currentRound = this.state.getCurrentRound();
+      const alreadyPersisted = currentRound?.findingsPersisted === true;
 
-      if (resolvedFindings.length > 0) {
+      if (!alreadyPersisted) {
         try {
-          backfillResolved({
-            resolvedFindings,
+          appendFindings({
+            findings: comparedFindings,
             sessionId: sessionState.sessionId,
-            resolvedInRound: round.number,
+            round: round.number,
             project: process.cwd(),
           });
         } catch (err) {
-          log(`warning: failed to backfill resolved findings: ${err instanceof Error ? err.message : String(err)}`);
+          log(`warning: failed to append findings: ${err instanceof Error ? err.message : String(err)}`);
         }
+
+        if (resolvedFindings.length > 0) {
+          try {
+            backfillResolved({
+              resolvedFindings,
+              sessionId: sessionState.sessionId,
+              resolvedInRound: round.number,
+              project: process.cwd(),
+            });
+          } catch (err) {
+            log(`warning: failed to backfill resolved findings: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
+
+        this.state.markFindingsPersisted();
       }
 
       // Clean up progress.json — round is complete

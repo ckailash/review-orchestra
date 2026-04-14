@@ -41,18 +41,27 @@ function createSkillSymlink(packageRoot: string): void {
     mkdirSync(skillsDir, { recursive: true });
   }
 
-  // Detect an existing symlink (including broken ones) with lstatSync —
-  // existsSync follows the link and returns false for broken links, which
-  // would leave the stale link in place and cause symlinkSync to EEXIST.
-  let linkPresent = false;
+  // Detect what (if anything) is at the symlink path. lstatSync (not
+  // existsSync) is required so broken symlinks are still seen — otherwise
+  // existsSync follows the link and returns false, leaving the stale link
+  // in place and causing symlinkSync to EEXIST.
+  let existing: ReturnType<typeof lstatSync> | null = null;
   try {
-    lstatSync(symlinkPath);
-    linkPresent = true;
+    existing = lstatSync(symlinkPath);
   } catch {
     // Path doesn't exist — nothing to remove
   }
 
-  if (linkPresent) {
+  if (existing) {
+    if (!existing.isSymbolicLink()) {
+      // A real file or directory occupies the symlink path. Refuse to
+      // touch it — unlinkSync would throw EISDIR for directories, and
+      // silently overwriting a real file the user put here would be a
+      // surprise. Surface a clear error so the user can resolve manually.
+      throw new Error(
+        `Cannot create skill symlink at ${symlinkPath}: a non-symlink ${existing.isDirectory() ? "directory" : "file"} already exists there. Remove it manually and re-run setup.`,
+      );
+    }
     try {
       const actualReal = realpathSync(symlinkPath);
       const expectedReal = realpathSync(target);

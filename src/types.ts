@@ -61,6 +61,12 @@ export interface Round {
   worktreeHash: string;
   startedAt: string;
   completedAt: string | null;
+  /**
+   * True once findings for this round have been written to
+   * `~/.review-orchestra/findings.jsonl`. Used to keep crash-recovery
+   * runs from re-appending the same findings on re-execution.
+   */
+  findingsPersisted?: boolean;
 }
 
 // Session state

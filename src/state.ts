@@ -54,6 +54,18 @@ function isValidState(obj: unknown): obj is SessionState {
   );
 }
 
+/**
+ * Sentinel error thrown when another live review-orchestra instance holds
+ * the lock. Caught and rethrown by `acquireLock` rather than relying on
+ * substring matches against the user-facing message.
+ */
+class ConcurrentInstanceError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ConcurrentInstanceError";
+  }
+}
+
 function hasScopeBaseChanged(
   existingScope: DiffScope | null,
   newScope: DiffScope,
@@ -73,14 +85,13 @@ function hasScopeBaseChanged(
   ) {
     return true;
   }
-  // Detect scope description changes (e.g., different commit ranges with same base)
+  // Detect scope description changes (e.g., different commit ranges with
+  // same base). The diff file list intentionally is NOT compared here: in
+  // a multi-round flow, fixing a file removes it from the diff between
+  // rounds while the underlying scope (base, range, user-supplied paths)
+  // is unchanged. Comparing scope.files would expire the session on every
+  // normal follow-up round.
   if (existingScope.description !== newScope.description) {
-    return true;
-  }
-  // Detect path-filter changes between rounds
-  const existingFiles = [...(existingScope.files ?? [])].sort().join("|");
-  const newFiles = [...(newScope.files ?? [])].sort().join("|");
-  if (existingFiles !== newFiles) {
     return true;
   }
   return false;
@@ -222,6 +233,14 @@ export class SessionManager {
     }
   }
 
+  markFindingsPersisted(): void {
+    const round = this.getCurrentRound();
+    if (round) {
+      round.findingsPersisted = true;
+      this.persist();
+    }
+  }
+
   fail(): void {
     // Keep session active so the user can retry after failure
     this.persist();
@@ -255,27 +274,17 @@ export class SessionManager {
           if (!isNaN(pid)) {
             try {
               process.kill(pid, 0);
-              throw new Error(
+              throw new ConcurrentInstanceError(
                 `Another review-orchestra instance is running (PID ${pid}). ` +
                   `Delete ${this.lockFile} if this is incorrect.`,
               );
             } catch (e) {
-              if (
-                e instanceof Error &&
-                e.message.includes("Another review-orchestra")
-              ) {
-                throw e;
-              }
+              if (e instanceof ConcurrentInstanceError) throw e;
               // Process doesn't exist — stale lock, safe to overwrite
             }
           }
         } catch (e) {
-          if (
-            e instanceof Error &&
-            e.message.includes("Another review-orchestra")
-          ) {
-            throw e;
-          }
+          if (e instanceof ConcurrentInstanceError) throw e;
           // Can't read lock file — treat as stale
         }
         // Stale lock — remove it and try to reacquire atomically
@@ -301,12 +310,12 @@ export class SessionManager {
               // Can't read — fall through with null
             }
             if (racingPid && !isNaN(racingPid)) {
-              throw new Error(
+              throw new ConcurrentInstanceError(
                 `Another review-orchestra instance is running (PID ${racingPid}). ` +
                   `Delete ${this.lockFile} if this is incorrect.`,
               );
             }
-            throw new Error(
+            throw new ConcurrentInstanceError(
               `Lock contention on ${this.lockFile} — another instance may be starting. Retry in a moment.`,
             );
           }

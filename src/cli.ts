@@ -18,7 +18,13 @@ const STATE_DIR = join(process.cwd(), ".review-orchestra");
 // --- Subcommand handlers ---
 
 async function runReview(remaining: string[]): Promise<void> {
-  const rawArgs = remaining.join(" ").trim();
+  // Preserve argv boundaries when joining: any argv element containing
+  // whitespace is wrapped in double quotes so parseArgs can see the
+  // original token rather than splitting on the embedded space.
+  const rawArgs = remaining
+    .map((a) => (/\s/.test(a) ? `"${a.replace(/"/g, '\\"')}"` : a))
+    .join(" ")
+    .trim();
   const args = parseArgs(rawArgs);
 
   // Build config overrides from parsed args
@@ -191,4 +197,9 @@ async function main(): Promise<void> {
   }
 }
 
-main();
+main().catch((err: unknown) => {
+  console.error(
+    `[review-orchestra] Fatal: ${err instanceof Error ? err.message : String(err)}`,
+  );
+  process.exit(1);
+});

@@ -5,6 +5,7 @@ import { buildReviewPrompt } from "./prompt";
 import { parseCommand } from "./command";
 import { log, logCommand, logTiming } from "../log";
 import { spawnWithStreaming } from "../process";
+import { stripNestedSessionEnv } from "../nested-session-env";
 
 export class ClaudeReviewer implements Reviewer {
   readonly name = "claude";
@@ -18,9 +19,9 @@ export class ClaudeReviewer implements Reviewer {
       args.push("--model", this.config.model);
     }
 
-    // Strip CLAUDECODE env var so headless claude -p doesn't think it's a nested session
-    const env = { ...process.env };
-    delete env.CLAUDECODE;
+    // Strip nested-session env so headless claude -p doesn't behave as a
+    // nested Claude Code session.
+    const env = stripNestedSessionEnv();
 
     logCommand("claude: invoking", bin, args);
     log(`claude: reviewing ${scope.files.length} files`);

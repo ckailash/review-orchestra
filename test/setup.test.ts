@@ -83,7 +83,8 @@ beforeEach(() => {
   mockRealpathSyncFs.mockReset();
   mockLstatSyncFs.mockReset();
   // Default: treat the symlink path as absent. Tests that need an existing
-  // symlink (stale or valid) override this mock directly.
+  // symlink (stale or valid) or a real file/directory at the path override
+  // this mock directly.
   mockLstatSyncFs.mockImplementation(() => {
     const err = new Error("ENOENT") as NodeJS.ErrnoException;
     err.code = "ENOENT";
@@ -299,8 +300,13 @@ describe("runSetup", () => {
         if (typeof p === "string" && p.includes("skills")) return true;
         return true;
       });
-      // lstatSync succeeds — link is present (even if stale)
-      mockLstatSyncFs.mockImplementation(() => ({}));
+      // lstatSync succeeds — link is present (even if stale). The fix
+      // function checks isSymbolicLink() to distinguish links from real
+      // files/directories.
+      mockLstatSyncFs.mockImplementation(() => ({
+        isSymbolicLink: () => true,
+        isDirectory: () => false,
+      }));
       // realpathSync shows mismatch (stale)
       mockRealpathSyncFs.mockImplementation((p: string) => {
         if (typeof p === "string" && p.includes("skills/review-orchestra")) return "/old/stale/skill";

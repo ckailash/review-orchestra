@@ -66,8 +66,9 @@ describe("VALID_BINARY_PATTERN", () => {
     expect(VALID_BINARY_PATTERN.test("review-orchestra")).toBe(true);
   });
 
-  it("accepts paths with slashes", () => {
-    expect(VALID_BINARY_PATTERN.test("/usr/local/bin/claude")).toBe(true);
+  it("rejects paths with slashes (absolute paths bypass the pattern via existsSync)", () => {
+    expect(VALID_BINARY_PATTERN.test("/usr/local/bin/claude")).toBe(false);
+    expect(VALID_BINARY_PATTERN.test("./bin/claude")).toBe(false);
   });
 
   it("accepts names with dots and underscores", () => {
@@ -108,6 +109,13 @@ describe("binaryExists", () => {
 
   it("returns false for empty string", () => {
     expect(binaryExists("")).toBe(false);
+    expect(mockExecFileSync).not.toHaveBeenCalled();
+  });
+
+  it("checks absolute paths via existsSync without invoking the PATH lookup tool", () => {
+    mockExistsSync.mockImplementation((p: string) => p === "/usr/local/bin/claude");
+    expect(binaryExists("/usr/local/bin/claude")).toBe(true);
+    expect(binaryExists("/missing/binary")).toBe(false);
     expect(mockExecFileSync).not.toHaveBeenCalled();
   });
 });

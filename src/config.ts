@@ -53,8 +53,22 @@ function mergeConfig(base: Config, parsed: Record<string, unknown>): Config {
     for (const [name, partial] of Object.entries(parsed.reviewers as Record<string, Partial<ReviewerConfig>>)) {
       if (reviewers[name]) {
         reviewers[name] = { ...reviewers[name], ...partial };
+        continue;
+      }
+      // New reviewer entry — only register it if the partial includes a
+      // non-empty command. Synthesising `command: ""` would silently
+      // create a broken reviewer that fails preflight in a confusing way.
+      if (typeof partial.command === "string" && partial.command.trim() !== "") {
+        reviewers[name] = {
+          enabled: partial.enabled ?? false,
+          command: partial.command,
+          outputFormat: partial.outputFormat ?? "json",
+          ...(partial.model !== undefined ? { model: partial.model } : {}),
+        };
       } else {
-        reviewers[name] = { enabled: false, command: "", outputFormat: "json", ...partial };
+        console.error(
+          `[review-orchestra] warning: ignoring config entry for unknown reviewer "${name}" — no command provided`,
+        );
       }
     }
   }

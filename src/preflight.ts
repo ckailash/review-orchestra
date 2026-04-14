@@ -64,12 +64,22 @@ export function runPreflight(config: Config): PreflightResult {
     errors.push("No reviewers are enabled in the configuration.");
   }
 
-  // LLM finding comparison preflight: warn if claude missing when method=llm
+  // LLM finding comparison preflight: when method=llm and the claude CLI
+  // is missing, the run will either fall back to heuristic matching (warn)
+  // or fail at comparison time (error) depending on the fallback policy.
   if (config.findingComparison?.method === "llm") {
     if (!binaryExists("claude")) {
-      warnings.push(
-        "LLM finding comparison requires claude CLI; falling back to heuristic matching"
-      );
+      if (config.findingComparison.fallback === "error") {
+        errors.push(
+          "LLM finding comparison requires claude CLI but it is not on PATH, " +
+            "and findingComparison.fallback is set to \"error\". " +
+            "Install claude or set fallback to \"heuristic\".",
+        );
+      } else {
+        warnings.push(
+          "LLM finding comparison requires claude CLI; falling back to heuristic matching",
+        );
+      }
     }
   }
 

@@ -7,6 +7,7 @@ import { buildReviewPrompt } from "./prompt";
 import { parseCommand } from "./command";
 import { log, logCommand, logTiming } from "../log";
 import { spawnWithStreaming } from "../process";
+import { stripNestedSessionEnv } from "../nested-session-env";
 
 export class CodexReviewer implements Reviewer {
   readonly name = "codex";
@@ -37,6 +38,7 @@ export class CodexReviewer implements Reviewer {
         bin,
         args,
         input: fullPrompt,
+        env: stripNestedSessionEnv(),
         label: "codex",
         inactivityTimeout: Math.max(10 * 60 * 1000, scope.files.length * 30 * 1000),
       });

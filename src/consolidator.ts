@@ -19,10 +19,13 @@ function parseDiffHunks(diff: string): DiffHunk[] {
   let currentFile = "";
 
   for (const line of diff.split("\n")) {
-    // Match diff file header: +++ b/src/auth.ts
-    const fileMatch = line.match(/^\+\+\+ b\/(.+)$/);
-    if (fileMatch) {
-      currentFile = fileMatch[1];
+    // Any +++ line resets the current file context. We only attribute
+    // hunks to a real file path (`+++ b/<path>`); for `+++ /dev/null`
+    // (deleted file) and any other `+++` form, currentFile is cleared so
+    // following hunks don't get misattributed to a previous file.
+    if (line.startsWith("+++ ")) {
+      const fileMatch = line.match(/^\+\+\+ b\/(.+)$/);
+      currentFile = fileMatch ? fileMatch[1] : "";
       continue;
     }
 

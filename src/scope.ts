@@ -30,14 +30,21 @@ function diffNewFile(file: string): string {
   }
 }
 
-function parseFileList(output: string): string[] {
+/**
+ * Parse a git output payload of file paths. When `nullSeparated` is true
+ * the input is treated as the output of `git -z ...` (NUL separators), so
+ * filenames containing literal LF characters are not split incorrectly.
+ * Default `false` keeps backwards compatibility for plain newline-separated
+ * inputs (e.g. concatenations of multiple plain-text outputs).
+ */
+function parseFileList(output: string, nullSeparated = false): string[] {
+  const parts = nullSeparated ? output.split("\0") : output.split("\n");
   // Reject absolute paths and path-separator-delimited traversal segments
   // (`..` as a full segment). Filenames that merely contain `..` (e.g.
   // `types..d.ts`) are allowed — git's own output is trusted, and the
   // user-supplied path filter is validated separately in `validatePaths`.
-  return output
-    .split("\n")
-    .map((f) => f.trim())
+  return parts
+    .map((f) => (nullSeparated ? f : f.trim()))
     .filter(Boolean)
     .filter((f) => !f.startsWith("/") && !/(^|\/)\.\.(\/|$)/.test(f));
 }
@@ -133,7 +140,7 @@ export function detectScope(
     if (to !== "HEAD") validateRef(to);
 
     const range = `${from}${separator}${to}`;
-    const refFiles = parseFileList(git("diff", range, "--name-only"));
+    const refFiles = parseFileList(git("diff", range, "--name-only", "-z"), true);
     const files = filterByPaths(refFiles, safePaths);
     if (files.length === 0) {
       if (safePaths.length > 0) {
@@ -174,11 +181,16 @@ export function detectScope(
     };
   }
 
-  // Check for uncommitted changes (staged + unstaged + untracked)
-  const unstaged = git("diff", "--name-only");
-  const staged = git("diff", "--cached", "--name-only");
-  const untracked = git("ls-files", "--others", "--exclude-standard");
-  const uncommittedFiles = parseFileList(`${unstaged}\n${staged}\n${untracked}`);
+  // Check for uncommitted changes (staged + unstaged + untracked).
+  // Use `-z` for each call so any filenames containing literal LF
+  // characters are preserved, then concatenate with NUL separators.
+  const unstaged = git("diff", "--name-only", "-z");
+  const staged = git("diff", "--cached", "--name-only", "-z");
+  const untracked = git("ls-files", "-z", "--others", "--exclude-standard");
+  const uncommittedFiles = parseFileList(
+    `${unstaged}\0${staged}\0${untracked}`,
+    true,
+  );
 
   if (uncommittedFiles.length > 0) {
     const files = filterByPaths([...new Set(uncommittedFiles)], safePaths);
@@ -199,7 +211,7 @@ export function detectScope(
     }
 
     // For untracked (new) files, generate diffs against /dev/null
-    const untrackedList = filterByPaths(parseFileList(untracked), safePaths);
+    const untrackedList = filterByPaths(parseFileList(untracked, true), safePaths);
     const untrackedDiffs = untrackedList
       .map((file) => diffNewFile(file))
       .filter(Boolean);
@@ -242,7 +254,8 @@ export function detectScope(
       const commitsAhead = git("log", `${baseBranch}..HEAD`, "--oneline");
       if (commitsAhead.length > 0) {
         const branchFiles = parseFileList(
-          git("diff", `${baseBranch}...HEAD`, "--name-only")
+          git("diff", `${baseBranch}...HEAD`, "--name-only", "-z"),
+          true,
         );
         const files = filterByPaths(branchFiles, safePaths);
         if (files.length === 0 && safePaths.length > 0) {
