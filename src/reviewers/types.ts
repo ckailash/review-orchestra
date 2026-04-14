@@ -6,7 +6,16 @@ export interface ReviewerResult {
   elapsedMs?: number;
 }
 
+export interface ReviewerCallContext {
+  /** Round number for this invocation. Used to name the raw-output file. */
+  roundNumber: number;
+}
+
 export interface Reviewer {
   name: string;
-  review(prompt: string, scope: DiffScope): Promise<ReviewerResult>;
+  review(
+    prompt: string,
+    scope: DiffScope,
+    context: ReviewerCallContext,
+  ): Promise<ReviewerResult>;
 }

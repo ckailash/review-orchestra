@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, mkdirSync } from "fs";
+import { readFileSync } from "fs";
 import { join } from "path";
 import { log } from "./log";
 import type {
@@ -323,8 +323,18 @@ export class Orchestrator {
       reviewers.map(async (reviewer) => {
         const startMs = Date.now();
         try {
-          const reviewerResult = await reviewer.review(this.reviewPrompt, scope);
-          const { findings, rawOutput } = reviewerResult;
+          // The reviewer persists its raw output to disk itself BEFORE
+          // parsing (see reviewers/raw-output.ts). The orchestrator no
+          // longer writes round-N-<name>-raw.txt — doing it here meant
+          // the file only existed on the success path, hiding the most
+          // useful debug artefact when a reviewer failed.
+          const roundNumber = this.state.getState().currentRound;
+          const reviewerResult = await reviewer.review(
+            this.reviewPrompt,
+            scope,
+            { roundNumber },
+          );
+          const { findings } = reviewerResult;
           const elapsedMs = reviewerResult.elapsedMs ?? (Date.now() - startMs);
 
           // Update progress.json — this reviewer is done
@@ -337,18 +347,6 @@ export class Orchestrator {
             writeProgress(this.stateDir, progress);
           } catch (err) {
             log(`warning: failed to write progress for ${reviewer.name}: ${err instanceof Error ? err.message : String(err)}`);
-          }
-
-          // Save raw reviewer output for debugging parse failures
-          try {
-            const roundNumber = this.state.getState().currentRound;
-            mkdirSync(this.stateDir, { recursive: true });
-            writeFileSync(
-              join(this.stateDir, `round-${roundNumber}-${reviewer.name}-raw.txt`),
-              rawOutput
-            );
-          } catch (err) {
-            log(`warning: failed to save raw output for ${reviewer.name}: ${err instanceof Error ? err.message : String(err)}`);
           }
 
           this.state.saveReview(reviewer.name, {

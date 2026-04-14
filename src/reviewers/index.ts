@@ -1,5 +1,5 @@
 import type { Config, DiffScope, ReviewerConfig } from "../types";
-import type { Reviewer, ReviewerResult } from "./types";
+import type { Reviewer, ReviewerCallContext, ReviewerResult } from "./types";
 import { ClaudeReviewer } from "./claude";
 import { CodexReviewer } from "./codex";
 import { parseReviewerOutput } from "../reviewer-parser";
@@ -8,6 +8,7 @@ import { parseCommand } from "./command";
 import { log, logCommand, logTiming } from "../log";
 import { spawnWithStreaming } from "../process";
 import { stripNestedSessionEnv } from "../nested-session-env";
+import { persistRawOutput } from "./raw-output";
 
 export function createReviewers(config: Config, stateDir: string): Reviewer[] {
   const reviewers: Reviewer[] = [];
@@ -17,13 +18,13 @@ export function createReviewers(config: Config, stateDir: string): Reviewer[] {
 
     switch (name) {
       case "claude":
-        reviewers.push(new ClaudeReviewer(reviewerConfig));
+        reviewers.push(new ClaudeReviewer(reviewerConfig, stateDir));
         break;
       case "codex":
         reviewers.push(new CodexReviewer(reviewerConfig, stateDir));
         break;
       default:
-        reviewers.push(new GenericReviewer(name, reviewerConfig));
+        reviewers.push(new GenericReviewer(name, reviewerConfig, stateDir));
         break;
     }
   }
@@ -36,12 +37,17 @@ class GenericReviewer implements Reviewer {
 
   constructor(
     name: string,
-    private config: ReviewerConfig
+    private config: ReviewerConfig,
+    private stateDir: string,
   ) {
     this.name = name;
   }
 
-  async review(prompt: string, scope: DiffScope): Promise<ReviewerResult> {
+  async review(
+    prompt: string,
+    scope: DiffScope,
+    context: ReviewerCallContext,
+  ): Promise<ReviewerResult> {
     const fullPrompt = buildReviewPrompt(prompt, scope);
 
     const { bin, args: templateArgs } = parseCommand(this.config.command);
@@ -68,14 +74,25 @@ class GenericReviewer implements Reviewer {
     log(`${this.name}: reviewing ${scope.files.length} files`);
     const startMs = Date.now();
 
+    let output: string;
     try {
-      const output = await spawnWithStreaming({
+      output = await spawnWithStreaming({
         bin,
         args,
         input: hasPromptPlaceholder ? undefined : fullPrompt,
         env,
         label: this.name,
       });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logTiming(`${this.name}: FAILED — ${message.slice(0, 200)}`, startMs);
+      throw new Error(`${this.name} reviewer failed: ${message}`);
+    }
+
+    // Persist raw output BEFORE parsing — see ClaudeReviewer for rationale.
+    persistRawOutput(this.stateDir, context.roundNumber, this.name, output);
+
+    try {
       const elapsedMs = Date.now() - startMs;
       const findings = parseReviewerOutput(output, this.name);
       log(`${this.name}: done (${findings.length} findings, ${(elapsedMs / 1000).toFixed(1)}s)`);

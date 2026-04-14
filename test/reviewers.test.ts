@@ -25,12 +25,14 @@ vi.mock("fs", async () => {
       return (actual as typeof import("fs")).existsSync(path);
     }),
     unlinkSync: vi.fn(),
+    renameSync: vi.fn(),
+    writeFileSync: vi.fn(),
     mkdirSync: vi.fn(),
   };
 });
 
 import { spawnWithStreaming } from "../src/process";
-import { readFileSync, existsSync, unlinkSync } from "fs";
+import { readFileSync, existsSync, unlinkSync, renameSync } from "fs";
 import { parseCommand } from "../src/reviewers/command";
 import { ClaudeReviewer } from "../src/reviewers/claude";
 import { CodexReviewer } from "../src/reviewers/codex";
@@ -107,8 +109,8 @@ describe("ClaudeReviewer", () => {
 
     vi.mocked(spawnWithStreaming).mockResolvedValue(validFindingsJson);
 
-    const reviewer = new ClaudeReviewer(claudeConfig);
-    await reviewer.review("review this", mockScope);
+    const reviewer = new ClaudeReviewer(claudeConfig, "/tmp/test-state");
+    await reviewer.review("review this", mockScope, { roundNumber: 1 });
 
     const spawnCall = vi.mocked(spawnWithStreaming).mock.calls[0][0];
     expect(spawnCall.env).toBeDefined();
@@ -123,8 +125,8 @@ describe("ClaudeReviewer", () => {
     const reviewer = new ClaudeReviewer({
       ...claudeConfig,
       model: "claude-sonnet-4-20250514",
-    });
-    await reviewer.review("review this", mockScope);
+    }, "/tmp/test-state");
+    await reviewer.review("review this", mockScope, { roundNumber: 1 });
 
     const spawnCall = vi.mocked(spawnWithStreaming).mock.calls[0][0];
     expect(spawnCall.args).toContain("--model");
@@ -134,12 +136,12 @@ describe("ClaudeReviewer", () => {
   it("calculates scaled inactivity timeout", async () => {
     vi.mocked(spawnWithStreaming).mockResolvedValue(validFindingsJson);
 
-    const reviewer = new ClaudeReviewer(claudeConfig);
+    const reviewer = new ClaudeReviewer(claudeConfig, "/tmp/test-state");
     const bigScope: DiffScope = {
       ...mockScope,
       files: Array.from({ length: 100 }, (_, i) => `src/file${i}.ts`),
     };
-    await reviewer.review("review this", bigScope);
+    await reviewer.review("review this", bigScope, { roundNumber: 1 });
 
     const spawnCall = vi.mocked(spawnWithStreaming).mock.calls[0][0];
     const expected = Math.max(10 * 60 * 1000, 100 * 30 * 1000); // 3000000
@@ -172,7 +174,7 @@ describe("CodexReviewer", () => {
     });
 
     const reviewer = new CodexReviewer(codexConfig, "/tmp/test-state");
-    const result = await reviewer.review("review this", mockScope);
+    const result = await reviewer.review("review this", mockScope, { roundNumber: 1 });
 
     expect(result.findings).toHaveLength(1);
     expect(result.findings[0].title).toBe("Test finding");
@@ -189,13 +191,13 @@ describe("CodexReviewer", () => {
     });
 
     const reviewer = new CodexReviewer(codexConfig, "/tmp/test-state");
-    const result = await reviewer.review("review this", mockScope);
+    const result = await reviewer.review("review this", mockScope, { roundNumber: 1 });
 
     expect(result.findings).toHaveLength(1);
     expect(result.rawOutput).toBe(validFindingsJson);
   });
 
-  it("cleans up output file in finally block", async () => {
+  it("preserves the output file as <name>.failed when codex fails (don't destroy debug evidence)", async () => {
     vi.mocked(spawnWithStreaming).mockRejectedValue(new Error("spawn failed"));
     vi.mocked(existsSync).mockImplementation((path: string) => {
       if (typeof path === "string" && path.includes("codex-output-")) return true;
@@ -204,11 +206,36 @@ describe("CodexReviewer", () => {
     });
 
     const reviewer = new CodexReviewer(codexConfig, "/tmp/test-state");
-    await expect(reviewer.review("review this", mockScope)).rejects.toThrow(
+    await expect(reviewer.review("review this", mockScope, { roundNumber: 1 })).rejects.toThrow(
       "Codex reviewer failed"
     );
 
-    // unlinkSync should have been called for the output file via finally block
+    // On failure: renamed to .failed for debugging, NOT unlinked.
+    expect(unlinkSync).not.toHaveBeenCalled();
+    expect(renameSync).toHaveBeenCalled();
+    const [from, to] = vi.mocked(renameSync).mock.calls[0] as [string, string];
+    expect(from).toContain("codex-output-");
+    expect(to).toBe(from + ".failed");
+  });
+
+  it("removes the output file on success (no longer needed once parsed)", async () => {
+    vi.mocked(spawnWithStreaming).mockResolvedValue("stdout content");
+    vi.mocked(existsSync).mockImplementation((path: string) => {
+      if (typeof path === "string" && path.includes("codex-output-")) return true;
+      const actual = vi.importActual("fs") as typeof import("fs");
+      return actual.existsSync(path);
+    });
+    vi.mocked(readFileSync).mockImplementation((path: string, ...args: unknown[]) => {
+      if (typeof path === "string" && path.includes("codex-output-")) {
+        return validFindingsJson;
+      }
+      const actual = vi.importActual("fs") as typeof import("fs");
+      return actual.readFileSync(path, ...args as [BufferEncoding]);
+    });
+
+    const reviewer = new CodexReviewer(codexConfig, "/tmp/test-state");
+    await reviewer.review("review this", mockScope, { roundNumber: 1 });
+
     expect(unlinkSync).toHaveBeenCalled();
     const unlinkPath = vi.mocked(unlinkSync).mock.calls[0][0] as string;
     expect(unlinkPath).toContain("codex-output-");
@@ -265,7 +292,7 @@ describe("GenericReviewer", () => {
     const reviewers = createReviewers(config, "/tmp/test-state");
     expect(reviewers).toHaveLength(1);
 
-    await reviewers[0].review("review prompt", mockScope);
+    await reviewers[0].review("review prompt", mockScope, { roundNumber: 1 });
 
     const spawnCall = vi.mocked(spawnWithStreaming).mock.calls[0][0];
     expect(spawnCall.input).toBeDefined();
@@ -288,7 +315,7 @@ describe("GenericReviewer", () => {
     });
 
     const reviewers = createReviewers(config, "/tmp/test-state");
-    await reviewers[0].review("review prompt", mockScope);
+    await reviewers[0].review("review prompt", mockScope, { roundNumber: 1 });
 
     const spawnCall = vi.mocked(spawnWithStreaming).mock.calls[0][0];
     expect(spawnCall.env).toBeDefined();
@@ -315,7 +342,7 @@ describe("GenericReviewer", () => {
     const reviewers = createReviewers(config, "/tmp/test-state");
     expect(reviewers).toHaveLength(1);
 
-    await reviewers[0].review("review prompt", mockScope);
+    await reviewers[0].review("review prompt", mockScope, { roundNumber: 1 });
 
     const spawnCall = vi.mocked(spawnWithStreaming).mock.calls[0][0];
     // When {prompt} is in args, input should be undefined
