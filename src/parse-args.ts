@@ -128,10 +128,13 @@ export function parseArgs(input: string): ParsedArgs {
   // Must come before path detection since SHAs could be mistaken for dotfiles.
   // Tokenize while preserving double-quoted segments so paths with spaces
   // (e.g. `"src/My Dir/file.ts"`) survive as a single token.
-  const rawTokens = remaining.match(/"((?:\\"|[^"])*)"|\S+/g) ?? [];
+  // Quoted segments accept `\<anychar>` as an escape (mirrors the cli.ts
+  // wrap step which escapes `\` → `\\` and `"` → `\"`). The unescape pass
+  // collapses `\x` → `x` so the round-trip is lossless for any byte.
+  const rawTokens = remaining.match(/"((?:\\.|[^"\\])*)"|\S+/g) ?? [];
   const tokens = rawTokens.map((t) =>
     t.startsWith('"') && t.endsWith('"')
-      ? t.slice(1, -1).replace(/\\"/g, '"')
+      ? t.slice(1, -1).replace(/\\(.)/g, "$1")
       : t,
   );
   const nonRefTokens: string[] = [];

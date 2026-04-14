@@ -198,7 +198,7 @@ export async function runSetup(packageRoot: string): Promise<void> {
     // Attempt fix for fixable checks that failed or warned
     // (gitignore warns when entry is missing; skill-symlink fails when broken)
     if ((result.status === "fail" || result.status === "warn") && entry.fixable) {
-      const fixed = attemptFix(entry.fixable, packageRoot, entry.label);
+      const fixed = attemptFix(entry.fixable, packageRoot);
       if (fixed) {
         fixCount++;
         // Remove from failed set — it's been fixed
@@ -254,7 +254,6 @@ export async function runSetup(packageRoot: string): Promise<void> {
 function attemptFix(
   fixable: string,
   packageRoot: string,
-  label: string
 ): boolean {
   switch (fixable) {
     case "skill-symlink": {

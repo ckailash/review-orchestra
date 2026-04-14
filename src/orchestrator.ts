@@ -319,9 +319,15 @@ export class Orchestrator {
     }
     writeProgress(this.stateDir, progress);
 
+    // Track reviewer start times outside the closure so the failure path
+    // in the results loop below can compute elapsedMs without reading it
+    // back from the shared progress object.
+    const reviewerStartTimes = new Map<string, number>();
+
     const results = await Promise.allSettled(
       reviewers.map(async (reviewer) => {
         const startMs = Date.now();
+        reviewerStartTimes.set(reviewer.name, startMs);
         try {
           // The reviewer persists its raw output to disk itself BEFORE
           // parsing (see reviewers/raw-output.ts). The orchestrator no
@@ -337,7 +343,11 @@ export class Orchestrator {
           const { findings } = reviewerResult;
           const elapsedMs = reviewerResult.elapsedMs ?? (Date.now() - startMs);
 
-          // Update progress.json — this reviewer is done
+          // Mutating the shared `progress` object across concurrent reviewer
+          // promises is safe because Node serializes the JS execution of each
+          // async continuation. Each reviewer's mutation + writeProgress runs
+          // atomically within one microtask. If we ever introduce true
+          // parallelism (worker threads), this assumption breaks.
           progress.reviewers[reviewer.name] = {
             status: "done",
             findingsCount: findings.length,
@@ -401,9 +411,10 @@ export class Orchestrator {
             ? result.reason.message
             : String(result.reason);
         reviewerErrors.push({ reviewer: reviewer.name, error: reason });
+        const startMs = reviewerStartTimes.get(reviewer.name);
         timings.push({
           name: reviewer.name,
-          elapsedMs: progress.reviewers[reviewer.name]?.elapsedMs ?? 0,
+          elapsedMs: startMs !== undefined ? Date.now() - startMs : 0,
         });
         this.callbacks.onReviewerError?.(reviewer.name, reason);
       }

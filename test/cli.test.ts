@@ -222,4 +222,33 @@ describe("parseArgs", () => {
     const result = parseArgs("HEAD");
     expect(result.commitRef).toBe("HEAD");
   });
+
+  // --- Quoted-token round-trip (mirrors cli.ts wrap step) ---
+  // The CLI wraps argv elements containing whitespace/quotes/backslashes in
+  // double quotes, escaping `\` → `\\` and `"` → `\"`. parseArgs's tokenizer
+  // must reverse this losslessly. Earlier versions only escaped quotes and
+  // would eat backslashes in args like `foo\\bar`.
+
+  // Mirror of cli.ts wrap helper (kept inline so the test fails if either
+  // side of the contract drifts).
+  const wrapArg = (a: string): string => {
+    if (!/[\s"\\]/.test(a)) return a;
+    return `"${a.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+  };
+  const wrap = (...argv: string[]) => argv.map(wrapArg).join(" ");
+
+  it("preserves backslashes in quoted path tokens", () => {
+    const result = parseArgs(wrap("src/path with\\backslash/file.ts"));
+    expect(result.paths).toEqual(["src/path with\\backslash/file.ts"]);
+  });
+
+  it("preserves embedded double quotes in quoted path tokens", () => {
+    const result = parseArgs(wrap('src/weird"name/file.ts'));
+    expect(result.paths).toEqual(['src/weird"name/file.ts']);
+  });
+
+  it("preserves backslash-quote sequences in quoted path tokens", () => {
+    const result = parseArgs(wrap('src/odd\\"name/file.ts'));
+    expect(result.paths).toEqual(['src/odd\\"name/file.ts']);
+  });
 });

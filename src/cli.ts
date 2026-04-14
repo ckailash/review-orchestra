@@ -40,10 +40,16 @@ function mergeReviewerOverrides(
 
 async function runReview(remaining: string[]): Promise<void> {
   // Preserve argv boundaries when joining: any argv element containing
-  // whitespace is wrapped in double quotes so parseArgs can see the
-  // original token rather than splitting on the embedded space.
+  // whitespace, a double quote, or a backslash is wrapped in double quotes
+  // with `\` and `"` escaped, so parseArgs's tokenizer can losslessly recover
+  // the original token. Without escaping backslashes, an arg like `foo\\bar`
+  // would round-trip as `foo\bar` (a backslash eaten by the unescape step).
   const rawArgs = remaining
-    .map((a) => (/\s/.test(a) ? `"${a.replace(/"/g, '\\"')}"` : a))
+    .map((a) => {
+      if (!/[\s"\\]/.test(a)) return a;
+      const escaped = a.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+      return `"${escaped}"`;
+    })
     .join(" ")
     .trim();
   const args = parseArgs(rawArgs);

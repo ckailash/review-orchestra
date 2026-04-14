@@ -150,8 +150,11 @@ export class SessionManager {
       // Check for session auto-expiry: scope base changed
       if (hasScopeBaseChanged(this.state.scope, scope)) {
         this.state.status = "expired";
-        this.persist();
-        this.releaseLock();
+        try {
+          this.persist();
+        } finally {
+          this.releaseLock();
+        }
         throw new Error(
           "Session expired: scope base has changed. Run `review-orchestra reset` to start a new session.",
         );
@@ -247,9 +250,14 @@ export class SessionManager {
   }
 
   fail(): void {
-    // Keep session active so the user can retry after failure
-    this.persist();
-    this.releaseLock();
+    // Keep session active so the user can retry after failure.
+    // releaseLock runs in finally so a persist failure (e.g. disk full)
+    // doesn't leave the lock held.
+    try {
+      this.persist();
+    } finally {
+      this.releaseLock();
+    }
   }
 
   private persist(): void {
@@ -350,9 +358,12 @@ export class SessionManager {
 
   releaseLock(): void {
     try {
-      if (existsSync(this.lockFile)) {
-        unlinkSync(this.lockFile);
-      }
+      if (!existsSync(this.lockFile)) return;
+      // Only delete if we own the lock — prevents a recovering process from
+      // stealing another instance's lock if the lock was overwritten.
+      const lockPid = parseInt(readFileSync(this.lockFile, "utf-8").trim(), 10);
+      if (!isNaN(lockPid) && lockPid !== process.pid) return;
+      unlinkSync(this.lockFile);
     } catch {
       // Best effort
     }

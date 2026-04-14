@@ -961,6 +961,45 @@ describe("SessionManager", () => {
       }
     });
 
+    it("releaseLock() does not delete a lock owned by a different PID", () => {
+      // Simulate a recovering process: lock file holds another PID.
+      const otherPid = process.pid + 1;
+      writeFileSync(join(TEST_DIR, "state.lock"), String(otherPid));
+      // SessionManager constructor doesn't acquire a lock; calling releaseLock
+      // directly should leave the foreign lock untouched.
+      const sm = new SessionManager(TEST_DIR);
+      sm.releaseLock();
+      expect(existsSync(join(TEST_DIR, "state.lock"))).toBe(true);
+      expect(readFileSync(join(TEST_DIR, "state.lock"), "utf-8").trim()).toBe(
+        String(otherPid),
+      );
+    });
+
+    it("releases lock on session expiry even if persist throws", () => {
+      // Set up an active session and release the lock so the next invocation
+      // can re-acquire it.
+      const sm1 = new SessionManager(TEST_DIR);
+      sm1.startOrContinue(makeScope());
+      sm1.releaseLock();
+
+      // Second invocation: load state, then trigger expiry. Mock persist
+      // to throw — releaseLock must still run via the finally block.
+      const sm2 = new SessionManager(TEST_DIR);
+      const persistSpy = vi
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .spyOn(sm2 as any, "persist")
+        .mockImplementation(() => {
+          throw new Error("disk full");
+        });
+      try {
+        const newScope = makeScope({ baseBranch: "different-base" });
+        expect(() => sm2.startOrContinue(newScope)).toThrow("disk full");
+        expect(existsSync(join(TEST_DIR, "state.lock"))).toBe(false);
+      } finally {
+        persistSpy.mockRestore();
+      }
+    });
+
     it("treats ESRCH from process.kill as a stale lock and overwrites", () => {
       writeFileSync(join(TEST_DIR, "state.lock"), "12345");
 
