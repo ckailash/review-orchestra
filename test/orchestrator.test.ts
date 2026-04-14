@@ -282,6 +282,52 @@ describe("Orchestrator", () => {
     expect(result.sessionId).toBe("20260315-143022");
   });
 
+  it("throws when recovery has no prior reviews and all rerun reviewers fail", async () => {
+    // Regression: tolerateAllFailure was unconditional in the reviewing-phase
+    // recovery branch. If a crash happened before any reviewer completed
+    // (round.reviews is empty) and every rerun reviewer also fails, the
+    // orchestrator silently produced a zero-finding "success" instead of
+    // erroring. The flag should only kick in when there are saved findings
+    // to fall back on.
+    const { createReviewers } = await import("../src/reviewers/index");
+    vi.mocked(createReviewers).mockReturnValue([
+      { name: "reviewer-a", review: vi.fn().mockRejectedValue(new Error("boom-a")) },
+      { name: "reviewer-b", review: vi.fn().mockRejectedValue(new Error("boom-b")) },
+    ]);
+
+    mkdirSync(TEST_STATE_DIR, { recursive: true });
+    const crashedState: SessionState = {
+      sessionId: "20260315-170000",
+      status: "active",
+      currentRound: 1,
+      rounds: [
+        {
+          number: 1,
+          phase: "reviewing",
+          reviews: {}, // crash happened before any reviewer completed
+          consolidated: [],
+          worktreeHash: "hash1",
+          startedAt: "2026-03-15T17:00:00Z",
+          completedAt: null,
+        },
+      ],
+      scope: mockScope,
+      worktreeHash: "hash1",
+      startedAt: "2026-03-15T17:00:00Z",
+      completedAt: null,
+    };
+    writeFileSync(
+      join(TEST_STATE_DIR, "session.json"),
+      JSON.stringify(crashedState, null, 2),
+    );
+
+    const config = loadConfig({ thresholds: { stopAt: "p1" } });
+    const orchestrator = new Orchestrator(config, TEST_STATE_DIR);
+    await expect(orchestrator.run(mockScope)).rejects.toThrow(
+      /All reviewers failed/,
+    );
+  });
+
   it("recovers when remaining reviewers all fail but prior reviews exist", async () => {
     // Crash recovery scenario: reviewer-a finished pre-crash, reviewer-b is
     // re-run and fails. Without the fix, runReviews throws "All reviewers

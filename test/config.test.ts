@@ -329,5 +329,38 @@ describe("config cascade (global → project)", () => {
       );
       errorSpy.mockRestore();
     });
+
+    it("rejects a non-string reviewer.command and falls back to the default", () => {
+      // Without validation, a number sneaks through and crashes parseCommand
+      // later with a confusing "command.match is not a function" error.
+      mockConfigOverride.projectJson = JSON.stringify({
+        reviewers: { claude: { command: 42 } },
+      });
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const config = loadConfig();
+      expect(typeof config.reviewers.claude.command).toBe("string");
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining("reviewers.claude.command"),
+      );
+      errorSpy.mockRestore();
+    });
+
+    it("rejects a non-string reviewer.model and strips it", () => {
+      mockConfigOverride.projectJson = JSON.stringify({
+        reviewers: { claude: { model: { not: "a string" } } },
+      });
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const config = loadConfig();
+      // model is optional — missing/undefined is fine; what matters is no
+      // object-shaped value made it into the merged config.
+      expect(
+        config.reviewers.claude.model === undefined ||
+          typeof config.reviewers.claude.model === "string",
+      ).toBe(true);
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining("reviewers.claude.model"),
+      );
+      errorSpy.mockRestore();
+    });
   });
 });

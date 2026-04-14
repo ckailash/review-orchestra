@@ -126,16 +126,17 @@ export class Orchestrator {
               };
             }
           }
-          // tolerateAllFailure: in recovery, prior reviewer findings in
-          // round.reviews provide a fallback even if every remaining reviewer
-          // fails this run. Without this, a transient flake on the second
-          // reviewer would force the user to start over instead of letting
-          // the saved findings carry the round.
+          // tolerateAllFailure only when there are saved findings to fall
+          // back on. Without this gate, a crash that happened before any
+          // reviewer completed (round.reviews is empty) followed by an all-
+          // fail rerun would silently produce a zero-finding "success"
+          // instead of surfacing the real all-failed condition.
+          const hasSavedFindings = Object.keys(round.reviews).length > 0;
           const reviewResult = await this.runReviews(
             scope,
             remainingReviewers,
             completedEntries,
-            { tolerateAllFailure: true },
+            { tolerateAllFailure: hasSavedFindings },
           );
 
           // Merge with already-completed reviewer findings (from before crash)

@@ -32,7 +32,11 @@ export function computeWorktreeHash(cwd: string = process.cwd()): string {
   }
   hash.update(head);
 
-  // 2. Staged + unstaged changes vs HEAD
+  // 2. Staged + unstaged changes vs HEAD. On a fresh repo (no HEAD),
+  // `git diff HEAD` throws — fall back to running `--cached` (staged vs
+  // empty tree) AND a bare `git diff` (working tree vs index) so unstaged
+  // edits to staged files still affect the hash. Without both, day-zero
+  // repos silently lose unstaged-edit detection.
   let diff = "";
   try {
     diff = execFileSync("git", ["diff", "HEAD"], {
@@ -41,16 +45,27 @@ export function computeWorktreeHash(cwd: string = process.cwd()): string {
       maxBuffer: 10 * 1024 * 1024,
     });
   } catch {
-    // Fresh repo — no HEAD to diff against; try staged changes only
+    let staged = "";
+    let unstaged = "";
     try {
-      diff = execFileSync("git", ["diff", "--cached"], {
+      staged = execFileSync("git", ["diff", "--cached"], {
         cwd,
         encoding: "utf-8",
         maxBuffer: 10 * 1024 * 1024,
       });
     } catch {
-      // No diff available
+      // No staged diff available
     }
+    try {
+      unstaged = execFileSync("git", ["diff"], {
+        cwd,
+        encoding: "utf-8",
+        maxBuffer: 10 * 1024 * 1024,
+      });
+    } catch {
+      // No unstaged diff available
+    }
+    diff = staged + "\0" + unstaged;
   }
   hash.update(diff);
 

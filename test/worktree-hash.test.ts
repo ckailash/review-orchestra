@@ -123,6 +123,31 @@ describe("computeWorktreeHash", () => {
       rmSync(freshDir, { recursive: true, force: true });
     }
   });
+
+  it("changes when an unstaged edit is made on a fresh repo with no HEAD", () => {
+    // Regression: on a fresh repo (no HEAD), `git diff HEAD` throws and the
+    // fallback only ran `git diff --cached`. Edits to a staged tracked file
+    // landed in `git diff` (working tree vs index), which we never read,
+    // so the hash was identical before and after the edit — silently
+    // breaking stale detection on day-zero repos.
+    const freshDir = "/tmp/review-orchestra-test-fresh-unstaged";
+    rmSync(freshDir, { recursive: true, force: true });
+    mkdirSync(freshDir, { recursive: true });
+    try {
+      execFileSync("git", ["init"], { cwd: freshDir, encoding: "utf-8" });
+      execFileSync("git", ["config", "user.email", "test@test.com"], { cwd: freshDir });
+      execFileSync("git", ["config", "user.name", "Test"], { cwd: freshDir });
+      writeFileSync(join(freshDir, "tracked.txt"), "v1");
+      execFileSync("git", ["add", "tracked.txt"], { cwd: freshDir });
+      const hashBefore = computeWorktreeHash(freshDir);
+      // Unstaged edit on top of the staged version (still no HEAD).
+      writeFileSync(join(freshDir, "tracked.txt"), "v2");
+      const hashAfter = computeWorktreeHash(freshDir);
+      expect(hashAfter).not.toBe(hashBefore);
+    } finally {
+      rmSync(freshDir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("checkStale", () => {

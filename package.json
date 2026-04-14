@@ -1,6 +1,6 @@
 {
   "name": "review-orchestra",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Multi-model automated code review orchestration for Claude Code",
   "type": "module",
   "main": "dist/orchestrator.js",

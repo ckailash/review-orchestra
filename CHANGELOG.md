@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.2 (Unreleased)
+## 0.1.2
 
 ### Added
 - Concurrent-run prevention via `.review-orchestra/state.lock` (PID-tracked, atomic-rename release protocol with TOCTOU re-check).
@@ -24,7 +24,13 @@
 ### Fixed
 - Failure-path reviewer timing now computed from a tracked `startMs` instead of reading back from the shared progress object (no silent fallback to `0`).
 - CLI argv → string round-trip escapes both backslash and quote so paths like `foo\bar` survive `parseArgs`.
-- Numerous smaller correctness fixes from six rounds of multi-model self-review (see commit history `v0.1.1..HEAD`).
+- `runReviews({ tolerateAllFailure: true })` only kicks in when the recovering round has saved findings to fall back on; otherwise an all-failed rerun correctly throws instead of silently producing a zero-finding success.
+- `computeWorktreeHash` on a fresh repo (no HEAD) now combines `git diff --cached` AND `git diff` so unstaged edits to staged files affect the hash. Previously day-zero repos silently lost unstaged-edit detection.
+- `validateAndStripInvalid` now rejects non-string `reviewers.<name>.command` and `reviewers.<name>.model` (warn + strip), preventing a typo'd config from crashing later inside `parseCommand` with a confusing "command.match is not a function" error.
+- Numerous smaller correctness fixes from seven rounds of multi-model self-review (see commit history `v0.1.1..HEAD`).
+
+### Known limitations (alpha)
+See `docs/improvements.md` for the round-7 findings deliberately deferred for future work — reviewer-timing data lost on consolidating-phase recovery, dead `outputFormat` config field, `mergeConfig` argument mutation, residual `isGitRef` ambiguity, empty-untracked-file scope inconsistency, JSONL `status` duplication, stale `scope.files` on continuing sessions, and single-delimiter tracking in `tryBalancedParse`.
 
 ## 0.1.1
 

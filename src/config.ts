@@ -125,6 +125,20 @@ function validateAndStripInvalid(parsed: Record<string, unknown>): void {
         );
         delete r.enabled;
       }
+      if (r.command !== undefined && typeof r.command !== "string") {
+        warnInvalid(
+          `reviewers.${name}.command`,
+          `must be a string (got ${JSON.stringify(r.command)})`,
+        );
+        delete r.command;
+      }
+      if (r.model !== undefined && typeof r.model !== "string") {
+        warnInvalid(
+          `reviewers.${name}.model`,
+          `must be a string (got ${JSON.stringify(r.model)})`,
+        );
+        delete r.model;
+      }
     }
   }
 }
