@@ -23,3 +23,13 @@ The fuzzy dedup uses a 5-line proximity threshold. When two reviewers point at d
 
 ### Diff-in-prompt mode
 Current approach sends file lists and reviewers read from disk. A future mode could inline the diff in the prompt for "dumb pipe" reviewers with no file access. See architecture.md "Future: Diff-in-prompt mode" for details.
+
+## Platform support
+
+### Windows portability
+The CLI is currently developed and tested on macOS/Linux only. A self-review surfaced two specific gaps to address before claiming Windows support:
+
+- **Path filter normalization** (`src/scope.ts`): `validatePaths` runs `path.normalize` which produces `\` separators on Windows, but git always emits `/` separators. Filters that pass validation can then match nothing in `filterByPaths`. Fix: normalize filter paths to POSIX (`\` → `/`) before comparison and apply consistently to the file paths returned by git.
+- **Absolute path validation** (`src/scope.ts`): the validator rejects only Unix-style absolute paths (`startsWith("/")`) and traversal markers. Windows absolute forms (drive-letter `C:\…` and UNC `\\server\share\…`) slip through despite the error message claiming absolute paths are disallowed. Fix: extend rejection to `^[a-zA-Z]:[\\/]` and `^\\\\`.
+
+Beyond these, a Windows pass should also audit subprocess invocations (`spawn`/`execFileSync` for the reviewer CLIs and git), shell-quoting in any command string round-trips, and lock-file behaviour around `process.kill(pid, 0)` semantics. Until Windows is officially supported, neither finding is a release blocker — they're tracked here so they're not lost.

@@ -129,7 +129,7 @@ function validateAndStripInvalid(parsed: Record<string, unknown>): void {
   }
 }
 
-function mergeConfig(base: Config, parsed: Record<string, unknown>): Config {
+export function mergeConfig(base: Config, parsed: Record<string, unknown>): Config {
   validateAndStripInvalid(parsed);
 
   const reviewers: Record<string, ReviewerConfig> = {};

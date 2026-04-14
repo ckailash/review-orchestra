@@ -119,6 +119,40 @@ describe("parseArgs", () => {
     expect(result.stopAt).toBe("p2");
   });
 
+  it("parses bare 'fix quality' threshold", () => {
+    const result = parseArgs("fix quality");
+    expect(result.stopAt).toBe("p2");
+  });
+
+  it("parses 'fix quality issues' threshold", () => {
+    const result = parseArgs("fix quality issues");
+    expect(result.stopAt).toBe("p2");
+  });
+
+  it("parses 'fix quality too' threshold", () => {
+    const result = parseArgs("fix quality too");
+    expect(result.stopAt).toBe("p2");
+  });
+
+  it("treats 'fix quality' before a path as the directive plus path", () => {
+    // `fix quality src/foo.ts` is a legitimate combination: stopAt p2, path scope.
+    // The `(issues?|too)` continuation tokens are optional — anything else after
+    // `fix quality` is a separate token, not part of the directive.
+    const result = parseArgs("fix quality src/foo.ts");
+    expect(result.stopAt).toBe("p2");
+    expect(result.paths).toEqual(["src/foo.ts"]);
+  });
+
+  it("parses 'skip my-reviewer' with a hyphenated reviewer name", () => {
+    const result = parseArgs("skip my-reviewer");
+    expect(result.disabledReviewers).toEqual(["my-reviewer"]);
+  });
+
+  it("parses 'only my-reviewer' with a hyphenated reviewer name", () => {
+    const result = parseArgs("only my-reviewer");
+    expect(result.onlyReviewer).toBe("my-reviewer");
+  });
+
   it("parses 'skip codex'", () => {
     const result = parseArgs("skip codex");
     expect(result.disabledReviewers).toEqual(["codex"]);
@@ -184,6 +218,19 @@ describe("parseArgs", () => {
     expect(parseArgs("abc1234").commitRef).toBe("abc1234");
     const sha40 = "abcdef1234abcdef1234abcdef1234abcdef1234";
     expect(parseArgs(sha40).commitRef).toBe(sha40);
+  });
+
+  it("does not classify all-letter hex tokens like 'deadbeef' as a SHA", () => {
+    // A real 7+ char SHA almost always contains both letters and digits.
+    // All-letter hex tokens are far more likely to be filenames than SHAs.
+    const result = parseArgs("deadbeef");
+    expect(result.commitRef).toBeUndefined();
+  });
+
+  it("does not classify all-digit 7-char tokens as a SHA", () => {
+    // PR numbers, ticket IDs, etc. should not be silently swallowed as refs.
+    const result = parseArgs("1234567");
+    expect(result.commitRef).toBeUndefined();
   });
 
   it("does not confuse short tokens with SHAs", () => {

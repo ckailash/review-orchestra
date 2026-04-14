@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   existsSync,
   mkdirSync,
+  readdirSync,
   rmSync,
   readFileSync,
   writeFileSync,
@@ -960,6 +961,21 @@ describe("SessionManager", () => {
         killSpy.mockRestore();
       }
     });
+
+    it("releaseLock() leaves no temp files behind on the happy path", () => {
+      // The TOCTOU-tightened release uses an atomic rename to a per-PID
+      // intermediate name before unlinking. After release, neither the
+      // original lock file nor any *.releasing.<pid> intermediate should
+      // remain in the state directory.
+      const sm = new SessionManager(TEST_DIR);
+      sm.startOrContinue(makeScope());
+      sm.releaseLock();
+      const remnants = readdirSync(TEST_DIR).filter((f) =>
+        f === "state.lock" || f.startsWith("state.lock."),
+      );
+      expect(remnants).toEqual([]);
+    });
+
 
     it("releaseLock() does not delete a lock owned by a different PID", () => {
       // Simulate a recovering process: lock file holds another PID.

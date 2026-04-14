@@ -71,8 +71,6 @@ export class Orchestrator {
     const recovery = this.state.startOrContinue(scope);
 
     try {
-      const worktreeHash = computeWorktreeHash();
-
       let round: Round;
       let allFindings: Finding[];
       let reviewerErrors: Array<{ reviewer: string; error: string }>;
@@ -87,9 +85,10 @@ export class Orchestrator {
         round = currentRound;
         this.callbacks.onRoundStart?.(round.number);
 
-        // Gather findings from saved reviews
+        // Gather findings from saved reviews and restore the reviewer
+        // errors that were observed in the original (pre-crash) run.
         allFindings = [];
-        reviewerErrors = [];
+        reviewerErrors = round.reviewerErrors ? [...round.reviewerErrors] : [];
         for (const [, output] of Object.entries(round.reviews)) {
           allFindings.push(...output.findings);
         }
@@ -127,7 +126,17 @@ export class Orchestrator {
               };
             }
           }
-          const reviewResult = await this.runReviews(scope, remainingReviewers, completedEntries);
+          // tolerateAllFailure: in recovery, prior reviewer findings in
+          // round.reviews provide a fallback even if every remaining reviewer
+          // fails this run. Without this, a transient flake on the second
+          // reviewer would force the user to start over instead of letting
+          // the saved findings carry the round.
+          const reviewResult = await this.runReviews(
+            scope,
+            remainingReviewers,
+            completedEntries,
+            { tolerateAllFailure: true },
+          );
 
           // Merge with already-completed reviewer findings (from before crash)
           allFindings = [...reviewResult.findings];
@@ -140,7 +149,11 @@ export class Orchestrator {
           timings = reviewResult.timings;
         }
       } else {
-        // Normal flow — create a new round
+        // Normal flow — create a new round. computeWorktreeHash spawns
+        // multiple git subprocesses and reads untracked file contents, so
+        // defer it to here rather than running it unconditionally up top
+        // (recovery paths above don't need a fresh hash).
+        const worktreeHash = computeWorktreeHash();
         round = this.state.newRound(worktreeHash);
         this.callbacks.onRoundStart?.(round.number);
 
@@ -279,7 +292,8 @@ export class Orchestrator {
   private async runReviews(
     scope: DiffScope,
     reviewers: Reviewer[],
-    completedReviewerEntries?: Record<string, { status: "done"; findingsCount: number; elapsedMs: number | null }>
+    completedReviewerEntries?: Record<string, { status: "done"; findingsCount: number; elapsedMs: number | null }>,
+    options?: { tolerateAllFailure?: boolean },
   ): Promise<{
     findings: Finding[];
     reviewerErrors: Array<{ reviewer: string; error: string }>;
@@ -386,6 +400,18 @@ export class Orchestrator {
             log(`warning: failed to write progress for ${reviewer.name}: ${progressErr instanceof Error ? progressErr.message : String(progressErr)}`);
           }
 
+          // Persist the error in the round so crash recovery from a later
+          // phase can surface it (otherwise the consolidating-phase recovery
+          // path would silently report 0 reviewer errors).
+          try {
+            this.state.saveReviewerError(
+              reviewer.name,
+              err instanceof Error ? err.message : String(err),
+            );
+          } catch (saveErr) {
+            log(`warning: failed to persist reviewer error for ${reviewer.name}: ${saveErr instanceof Error ? saveErr.message : String(saveErr)}`);
+          }
+
           throw err;
         }
       })
@@ -420,7 +446,7 @@ export class Orchestrator {
       }
     }
 
-    if (succeededCount === 0) {
+    if (succeededCount === 0 && !options?.tolerateAllFailure) {
       throw new Error("All reviewers failed — cannot determine review status");
     }
 

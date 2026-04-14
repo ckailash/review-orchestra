@@ -69,6 +69,12 @@ export interface Round {
   startedAt: string;
   completedAt: string | null;
   /**
+   * Reviewers that failed during this round, persisted so crash recovery
+   * from the 'consolidating' phase can surface the original failures
+   * instead of silently reporting zero errors.
+   */
+  reviewerErrors?: Array<{ reviewer: string; error: string }>;
+  /**
    * True once findings for this round have been written to
    * `~/.review-orchestra/findings.jsonl`. Used to keep crash-recovery
    * runs from re-appending the same findings on re-execution.

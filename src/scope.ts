@@ -225,7 +225,12 @@ export function detectScope(
 
     const diff = [trackedDiff, ...untrackedDiffs].filter(Boolean).join("\n");
     checkDiffSize(diff);
-    const branch = git("rev-parse", "--abbrev-ref", "HEAD");
+    const rawBranch = git("rev-parse", "--abbrev-ref", "HEAD");
+    // Detached HEAD: git returns the literal string "HEAD" rather than a
+    // branch name. Don't propagate "HEAD" as a baseBranch — it makes the
+    // scope description misleading and confuses cross-round comparison
+    // (hasScopeBaseChanged would treat any reattach as a base change).
+    const isDetached = rawBranch === "HEAD";
 
     let commitMessages: string | undefined;
     try {
@@ -237,17 +242,24 @@ export function detectScope(
 
     let baseCommitSha: string | undefined;
     try {
-      baseCommitSha = git("rev-parse", branch);
+      baseCommitSha = git("rev-parse", isDetached ? "HEAD" : rawBranch);
     } catch {
       baseCommitSha = undefined;
     }
+
+    const baseBranch = isDetached
+      ? `detached@${baseCommitSha?.slice(0, 7) ?? "HEAD"}`
+      : rawBranch;
+    const description = isDetached
+      ? `Uncommitted changes (detached HEAD at ${baseCommitSha?.slice(0, 7) ?? "unknown"})`
+      : `Uncommitted changes on ${rawBranch}`;
 
     return {
       type: "uncommitted",
       diff,
       files,
-      baseBranch: branch,
-      description: `Uncommitted changes on ${branch}`,
+      baseBranch,
+      description,
       commitMessages,
       baseCommitSha,
       pathFilters: safePaths,

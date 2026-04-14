@@ -2,8 +2,7 @@ import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import { existsSync, readFileSync, rmSync } from "fs";
 import { detectScope } from "./scope";
-import { loadConfig } from "./config";
-import type { ReviewerConfig } from "./types";
+import { loadConfig, mergeConfig } from "./config";
 import {
   Orchestrator,
   type OrchestratorCallbacks,
@@ -15,26 +14,6 @@ import { runDoctor as runDoctorCmd } from "./doctor.js";
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const STATE_DIR = join(process.cwd(), ".review-orchestra");
-
-function mergeReviewerOverrides(
-  base: Record<string, ReviewerConfig>,
-  overrides?: Record<string, Partial<ReviewerConfig>>,
-): Record<string, ReviewerConfig> {
-  if (!overrides) return base;
-  const merged: Record<string, ReviewerConfig> = {};
-  for (const [name, cfg] of Object.entries(base)) {
-    merged[name] = { ...cfg };
-  }
-  for (const [name, partial] of Object.entries(overrides)) {
-    if (merged[name]) {
-      merged[name] = { ...merged[name], ...partial };
-    }
-    // Unknown reviewer overrides are ignored here — adding a new reviewer
-    // with no command via the CLI is not supported (loadConfig handles
-    // adding new reviewers from the config-file cascade with validation).
-  }
-  return merged;
-}
 
 // --- Subcommand handlers ---
 
@@ -82,17 +61,13 @@ async function runReview(remaining: string[]): Promise<void> {
     }
   }
 
-  // Merge overrides into baseConfig in-memory to avoid a second
-  // tryLoadJson sweep across the config cascade (defaults + global +
-  // project) for every CLI invocation that uses overrides.
-  const config: typeof baseConfig =
+  // Route overrides through mergeConfig so any new fields automatically
+  // get the same validation as file-loaded config, and to keep the merge
+  // semantics in one place (config.ts).
+  const config =
     Object.keys(overrides).length === 0
       ? baseConfig
-      : {
-          reviewers: mergeReviewerOverrides(baseConfig.reviewers, overrides.reviewers),
-          thresholds: { ...baseConfig.thresholds, ...overrides.thresholds },
-          findingComparison: baseConfig.findingComparison,
-        };
+      : mergeConfig(baseConfig, overrides as Record<string, unknown>);
 
   // Detect scope
   console.error("[review-orchestra] Detecting scope...");

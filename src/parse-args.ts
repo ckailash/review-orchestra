@@ -41,8 +41,13 @@ function isGitRef(token: string): boolean {
   if (/^[^.]+\.{2,3}[^.]+$/.test(token)) return true;
   // HEAD with optional ~N or ^N (each suffix must include at least one digit)
   if (/^HEAD([~^]\d+)*$/i.test(token)) return true;
-  // Bare SHA (7-40 hex characters)
-  if (/^[0-9a-f]{7,40}$/i.test(token)) return true;
+  // Bare SHA (7-40 hex characters). Require BOTH letters and digits so we
+  // don't silently swallow tokens like `deadbeef` (a hex-shaped filename) or
+  // `1234567` (a PR number / ticket ID). Real SHAs of length 7+ almost
+  // always contain both — a digit-only or letter-only SHA is exceedingly rare.
+  if (/^[0-9a-f]{7,40}$/i.test(token) && /[a-f]/i.test(token) && /\d/.test(token)) {
+    return true;
+  }
   return false;
 }
 
@@ -90,19 +95,22 @@ export function parseArgs(input: string): ParsedArgs {
   if (/(?<=^|\s)fix\s+(everything|all)(?=\s|$)/i.test(remaining)) {
     result.stopAt = "p3";
     remaining = remaining.replace(/(?<=^|\s)fix\s+(everything|all)(?=\s|$)/gi, "").trim();
-  } else if (/(?<=^|\s)fix\s+quality(?=\s|$|\s+(issues?|too))/i.test(remaining)) {
+  } else if (/(?<=^|\s)fix\s+quality(?=\s|$)/i.test(remaining)) {
     result.stopAt = "p2";
     remaining = remaining.replace(/(?<=^|\s)fix\s+quality(?:\s+issues?)?(?:\s+too)?(?=\s|$)/gi, "").trim();
   }
 
-  // Reviewer selection: "skip codex", "only use claude", "only claude"
+  // Reviewer selection: "skip codex", "only use claude", "only claude".
+  // Reviewer names may be hyphenated (e.g. `my-reviewer`), so accept `[\w-]+`
+  // rather than `\w+`. A trailing hyphen is allowed by this character class but
+  // would never round-trip a real config key, so we don't trim it specially.
   let skipMatch;
-  while ((skipMatch = remaining.match(/(?<=^|\s)skip\s+(\w+)(?=\s|$)/i))) {
+  while ((skipMatch = remaining.match(/(?<=^|\s)skip\s+([\w-]+)(?=\s|$)/i))) {
     result.disabledReviewers.push(skipMatch[1].toLowerCase());
     remaining = remaining.replace(skipMatch[0], "").trim();
   }
 
-  const onlyMatch = remaining.match(/(?<=^|\s)only\s+(?:use\s+)?(\w+)(?=\s|$)/i);
+  const onlyMatch = remaining.match(/(?<=^|\s)only\s+(?:use\s+)?([\w-]+)(?=\s|$)/i);
   if (onlyMatch) {
     result.onlyReviewer = onlyMatch[1].toLowerCase();
     remaining = remaining.replace(onlyMatch[0], "").trim();

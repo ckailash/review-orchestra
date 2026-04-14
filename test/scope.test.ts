@@ -46,6 +46,35 @@ describe("detectScope", () => {
     });
   });
 
+  describe("detached HEAD", () => {
+    it("produces a clear description and avoids using 'HEAD' as the base branch", () => {
+      mockExecFile.mockImplementation((...args: unknown[]) => {
+        const cmd = argsToCmd(args);
+        if (cmd === "git diff --name-only -z") return "src/foo.ts\n";
+        if (cmd === "git diff --cached --name-only -z") return "";
+        if (cmd === "git ls-files -z --others --exclude-standard") return "";
+        if (cmd === "git diff HEAD") {
+          return "diff --git a/src/foo.ts b/src/foo.ts\n--- a/src/foo.ts\n+++ b/src/foo.ts\n@@ -1,3 +1,4 @@\n+added line\n";
+        }
+        // Detached HEAD: git rev-parse --abbrev-ref returns the literal string "HEAD".
+        if (cmd === "git rev-parse --abbrev-ref HEAD") return "HEAD\n";
+        if (cmd === "git rev-parse HEAD") return "abc123def456\n";
+        if (cmd.startsWith("git log")) return "";
+        return "";
+      });
+
+      const scope = detectScope();
+      expect(scope.type).toBe("uncommitted");
+      // The description must not look like a branch literally named "HEAD".
+      expect(scope.description).not.toBe("Uncommitted changes on HEAD");
+      expect(scope.description).toMatch(/detached/i);
+      // baseBranch should not be the literal "HEAD" string either —
+      // hasScopeBaseChanged compares it across rounds and we want a stable,
+      // descriptive identifier.
+      expect(scope.baseBranch).not.toBe("HEAD");
+    });
+  });
+
   describe("branch changes", () => {
     it("detects committed changes on a branch vs main", () => {
       mockExecFile.mockImplementation((...args: unknown[]) => {

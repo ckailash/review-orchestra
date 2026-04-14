@@ -93,6 +93,25 @@ describe("parseCommand", () => {
     const result = parseCommand("");
     expect(result).toEqual({ bin: "", args: [] });
   });
+
+  it("preserves embedded escaped quotes inside a quoted arg", () => {
+    // Real-world: a custom command might pass a literal `"` inside a quoted
+    // argument by escaping it as `\"`. Earlier versions used `"[^"]*"` which
+    // terminated at the first inner `"`, splitting the arg in two.
+    const result = parseCommand('claude --arg "value with \\"nested\\" quotes"');
+    expect(result).toEqual({
+      bin: "claude",
+      args: ["--arg", 'value with "nested" quotes'],
+    });
+  });
+
+  it("preserves escaped backslashes inside a quoted arg", () => {
+    const result = parseCommand('claude --path "c:\\\\foo\\\\bar"');
+    expect(result).toEqual({
+      bin: "claude",
+      args: ["--path", "c:\\foo\\bar"],
+    });
+  });
 });
 
 // ─── ClaudeReviewer ───────────────────────────────────────────────────────────

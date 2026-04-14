@@ -233,6 +233,20 @@ export class SessionManager {
     }
   }
 
+  saveReviewerError(reviewer: string, error: string): void {
+    const round = this.getCurrentRound();
+    if (!round) return;
+    if (!round.reviewerErrors) round.reviewerErrors = [];
+    // De-dup by reviewer name in case a recovery re-runs the same failure.
+    const existingIdx = round.reviewerErrors.findIndex((e) => e.reviewer === reviewer);
+    if (existingIdx >= 0) {
+      round.reviewerErrors[existingIdx] = { reviewer, error };
+    } else {
+      round.reviewerErrors.push({ reviewer, error });
+    }
+    this.persist();
+  }
+
   saveConsolidated(findings: Finding[]): void {
     const round = this.getCurrentRound();
     if (round) {
@@ -357,15 +371,47 @@ export class SessionManager {
   }
 
   releaseLock(): void {
+    // Atomic-rename release protocol:
+    //   1. PID check on the lock file (must be ours).
+    //   2. renameSync(lockFile, tempName) — atomic FS operation. After this,
+    //      the file at tempName is exclusively addressable by us; no other
+    //      process can replace its contents.
+    //   3. PID re-check on tempName. If another process raced a write between
+    //      our step-1 read and our step-2 rename, tempName now holds their
+    //      content. We restore it to lockFile and stop.
+    //   4. Unlink tempName.
+    //
+    // This closes the TOCTOU window between the PID check and the unlink.
+    // The remaining theoretical race is between step-2 rename and step-3
+    // restore (during which lockFile briefly doesn't exist), but that window
+    // only matters under genuine concurrent acquireLock attempts, which are
+    // already governed by acquireLock's own atomic `wx` open.
+    const tempName = `${this.lockFile}.releasing.${process.pid}`;
     try {
       if (!existsSync(this.lockFile)) return;
-      // Only delete if we own the lock — prevents a recovering process from
-      // stealing another instance's lock if the lock was overwritten.
       const lockPid = parseInt(readFileSync(this.lockFile, "utf-8").trim(), 10);
       if (!isNaN(lockPid) && lockPid !== process.pid) return;
-      unlinkSync(this.lockFile);
+      renameSync(this.lockFile, tempName);
     } catch {
-      // Best effort
+      // ENOENT: another process already released. Anything else: best effort.
+      return;
+    }
+    try {
+      const renamedPid = parseInt(readFileSync(tempName, "utf-8").trim(), 10);
+      if (!isNaN(renamedPid) && renamedPid !== process.pid) {
+        // We renamed away another instance's lock. Restore it so they can
+        // still find it via the canonical path.
+        renameSync(tempName, this.lockFile);
+        return;
+      }
+      unlinkSync(tempName);
+    } catch {
+      // Best effort cleanup of the temp file.
+      try {
+        unlinkSync(tempName);
+      } catch {
+        // Nothing more we can do.
+      }
     }
   }
 }

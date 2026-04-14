@@ -282,6 +282,79 @@ describe("Orchestrator", () => {
     expect(result.sessionId).toBe("20260315-143022");
   });
 
+  it("recovers when remaining reviewers all fail but prior reviews exist", async () => {
+    // Crash recovery scenario: reviewer-a finished pre-crash, reviewer-b is
+    // re-run and fails. Without the fix, runReviews throws "All reviewers
+    // failed" — even though reviewer-a's findings are sitting in saved state.
+    const { createReviewers } = await import("../src/reviewers/index");
+
+    const savedFinding = makeFinding({
+      id: "saved-001",
+      title: "Saved finding from reviewer-a",
+      reviewer: "reviewer-a",
+    });
+
+    vi.mocked(createReviewers).mockReturnValue([
+      {
+        name: "reviewer-a",
+        review: vi.fn().mockRejectedValue(new Error("should not be called")),
+      },
+      {
+        name: "reviewer-b",
+        review: vi.fn().mockRejectedValue(new Error("connection timeout")),
+      },
+    ]);
+
+    mkdirSync(TEST_STATE_DIR, { recursive: true });
+    const crashedState: SessionState = {
+      sessionId: "20260315-143022",
+      status: "active",
+      currentRound: 1,
+      rounds: [
+        {
+          number: 1,
+          phase: "reviewing",
+          reviews: {
+            "reviewer-a": {
+              findings: [savedFinding],
+              metadata: {
+                reviewer: "reviewer-a",
+                round: 1,
+                timestamp: "2026-03-15T14:30:22Z",
+                files_reviewed: 1,
+                diff_scope: "branch feat/auth vs main",
+              },
+            },
+          },
+          consolidated: [],
+          worktreeHash: "hash1",
+          startedAt: "2026-03-15T14:30:22Z",
+          completedAt: null,
+        },
+      ],
+      scope: mockScope,
+      worktreeHash: "hash1",
+      startedAt: "2026-03-15T14:30:22Z",
+      completedAt: null,
+    };
+    writeFileSync(
+      join(TEST_STATE_DIR, "session.json"),
+      JSON.stringify(crashedState, null, 2),
+    );
+
+    const config = loadConfig({ thresholds: { stopAt: "p1" } });
+    const orchestrator = new Orchestrator(config, TEST_STATE_DIR);
+    // Must not throw — saved reviewer-a findings are sufficient to proceed.
+    const result = await orchestrator.run(mockScope);
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0].title).toBe("Saved finding from reviewer-a");
+    expect(result.reviewerErrors).toHaveLength(1);
+    expect(result.reviewerErrors[0]).toEqual({
+      reviewer: "reviewer-b",
+      error: "connection timeout",
+    });
+  });
+
   it("skips to consolidation when recovering with all reviewers already completed", async () => {
     const { createReviewers } = await import("../src/reviewers/index");
 
@@ -369,6 +442,70 @@ describe("Orchestrator", () => {
     expect(result.reviewerErrors).toEqual([]);
     expect(result.round).toBe(1);
     expect(result.sessionId).toBe("20260315-143022");
+  });
+
+  it("preserves reviewer errors from the original run when recovering from consolidation", async () => {
+    // Crash recovery from the 'consolidating' phase initialised reviewerErrors
+    // to [] regardless of what the original run had observed. If reviewer-b
+    // failed in the original run, the recovered ReviewResult would silently
+    // claim 0 reviewer errors. Persisted Round.reviewerErrors fixes this.
+    const { createReviewers } = await import("../src/reviewers/index");
+    const findingA = makeFinding({ id: "saved-001", title: "A finding", reviewer: "reviewer-a" });
+    const reviewFn = vi.fn();
+
+    vi.mocked(createReviewers).mockReturnValue([
+      { name: "reviewer-a", review: reviewFn },
+      { name: "reviewer-b", review: reviewFn },
+    ]);
+
+    mkdirSync(TEST_STATE_DIR, { recursive: true });
+    const crashedState: SessionState = {
+      sessionId: "20260315-160000",
+      status: "active",
+      currentRound: 1,
+      rounds: [
+        {
+          number: 1,
+          phase: "consolidating",
+          reviews: {
+            "reviewer-a": {
+              findings: [findingA],
+              metadata: {
+                reviewer: "reviewer-a",
+                round: 1,
+                timestamp: "2026-03-15T16:00:00Z",
+                files_reviewed: 1,
+                diff_scope: "branch feat/auth vs main",
+              },
+            },
+          },
+          // reviewer-b failed in the original run — persisted alongside the
+          // round so recovery can surface it instead of pretending it didn't
+          // happen.
+          reviewerErrors: [{ reviewer: "reviewer-b", error: "spawn EACCES" }],
+          consolidated: [],
+          worktreeHash: "hash1",
+          startedAt: "2026-03-15T16:00:00Z",
+          completedAt: null,
+        },
+      ],
+      scope: mockScope,
+      worktreeHash: "hash1",
+      startedAt: "2026-03-15T16:00:00Z",
+      completedAt: null,
+    };
+    writeFileSync(
+      join(TEST_STATE_DIR, "session.json"),
+      JSON.stringify(crashedState, null, 2),
+    );
+
+    const config = loadConfig({ thresholds: { stopAt: "p1" } });
+    const orchestrator = new Orchestrator(config, TEST_STATE_DIR);
+    const result = await orchestrator.run(mockScope);
+    expect(reviewFn).not.toHaveBeenCalled();
+    expect(result.reviewerErrors).toEqual([
+      { reviewer: "reviewer-b", error: "spawn EACCES" },
+    ]);
   });
 
   it("resumes from consolidation when recovering from crash during consolidation phase", async () => {

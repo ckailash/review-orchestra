@@ -157,6 +157,41 @@ describe("runPreflight", () => {
     expect(comparisonWarning).toBeUndefined();
   });
 
+  it("uses the configured claude command's binary for the LLM comparison check", () => {
+    // A user with a custom claude binary path (e.g. a wrapper script) should
+    // not get a false missing-binary warning if their configured binary
+    // exists, even though the literal "claude" binary doesn't.
+    mockBinaries(["claude-custom", "codex", "git"]);
+    const config = loadConfig({
+      reviewers: {
+        claude: { command: "claude-custom -p" },
+      },
+      findingComparison: { method: "llm" },
+    });
+    const result = runPreflight(config);
+    const comparisonWarning = result.warnings.find((w) =>
+      w.includes("LLM finding comparison")
+    );
+    expect(comparisonWarning).toBeUndefined();
+  });
+
+  it("errors with the configured claude binary name when fallback=error", () => {
+    mockBinaries(["codex", "git"]);
+    const config = loadConfig({
+      reviewers: {
+        claude: { command: "claude-custom -p" },
+      },
+      findingComparison: { method: "llm", fallback: "error" },
+    });
+    const result = runPreflight(config);
+    const comparisonError = result.errors.find((e) =>
+      e.includes("LLM finding comparison"),
+    );
+    expect(comparisonError).toBeDefined();
+    // The error message should reference the configured binary name, not "claude".
+    expect(comparisonError).toContain("claude-custom");
+  });
+
   it("does not warn about finding comparison when findingComparison is undefined", () => {
     mockBinaries(["codex", "git"]);
     // Create a config without findingComparison explicitly

@@ -105,30 +105,10 @@ export function backfillResolved(options: BackfillResolvedOptions): void {
   const lines = content.split("\n");
   const resolvedIds = new Set(resolvedFindings.map((f) => f.id));
 
-  // Fast path: scan once to confirm at least one matching entry exists
-  // before doing a full parse/serialise rewrite. For a project with many
-  // rounds and most calls being no-ops, this avoids paying the rewrite
-  // cost when nothing matches.
-  let hasMatch = false;
-  for (const line of lines) {
-    let entry: JsonlEntry;
-    try {
-      entry = JSON.parse(line) as JsonlEntry;
-    } catch {
-      continue;
-    }
-    if (
-      entry.sessionId === sessionId &&
-      entry.project === project &&
-      resolvedIds.has(entry.finding.id) &&
-      entry.resolved_in_round === null
-    ) {
-      hasMatch = true;
-      break;
-    }
-  }
-  if (!hasMatch) return;
-
+  // Single pass: parse each line once, mark matching entries resolved, and
+  // build the updated line array. Skip the rewrite entirely if no entry
+  // matched. This is strictly cheaper than the prior two-pass scheme (which
+  // parsed every line twice when matches existed).
   let modified = false;
   const updatedLines = lines.map((line) => {
     let entry: JsonlEntry;
