@@ -799,6 +799,14 @@ nav .nav-links a:hover { color: var(--gold); }
   border: 1px solid var(--bar-line);
   border-radius: 3px;
   white-space: pre;
+  /* Scroll horizontally inside the container rather than pushing the page
+     width beyond the viewport. Without this, long filenames like the
+     round-N-<reviewer>-raw.txt tree entries force the body wider than the
+     viewport, creating a phantom right-side column and shoving the fixed
+     nav's hamburger button off-screen on narrow phones. */
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  max-width: 100%;
 }
 .dir-tree .hl-dir { color: var(--gold); }
 .dir-tree .hl-file { color: var(--cream-dim); }
