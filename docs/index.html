@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>review-orchestra — Multi-Model Code Review Orchestration</title>
+<title>review-orchestra: Multi-Model Code Review Orchestration</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400;1,500&family=DM+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
@@ -866,17 +866,31 @@ nav .nav-links a:hover { color: var(--gold); }
   font-size: 0.82rem;
   vertical-align: top;
 }
+/* Column 1 is always a short identifier (field name, subcommand, exit
+   code). Monospace, cream, no wrap. */
 .settings-table td:first-child {
   font-family: var(--font-mono);
   font-size: 0.76rem;
   color: var(--cream);
   white-space: nowrap;
 }
-.settings-table td:nth-child(2) {
+/* Column 2 is mono/gold for short value tokens in 3+ column tables
+   (e.g. "p0", "60000"). When there's no column 3, column 2 IS the
+   description and falls through to the last-child rule below. */
+.settings-table td:nth-child(2):not(:last-child) {
   font-family: var(--font-mono);
   font-size: 0.76rem;
   color: var(--gold);
   white-space: nowrap;
+}
+/* The description column (always the last one) wraps freely with the
+   body font so long rows don't blow out the table width. */
+.settings-table td:last-child {
+  white-space: normal;
+  word-break: break-word;
+  font-family: var(--font-body);
+  font-size: 0.82rem;
+  color: var(--cream-dim);
 }
 
 /* ═══════════════════════════════════════════
@@ -1445,7 +1459,7 @@ footer {
       <div class="feature-card reveal">
         <div class="card-marker"><div class="note-head"></div></div>
         <h3 class="card-title">Fuzzy Dedup</h3>
-        <p class="card-desc">Same bug, different words. Jaccard similarity on tokenised titles catches cross-reviewer duplicates and merges them into a single finding.</p>
+        <p class="card-desc">Same bug, different words. When Claude and Codex both flag the same issue with different phrasing, they get merged into a single finding attributed to both.</p>
         <div class="card-example"><span class="hl-dim">// Claude says:</span>
 <span class="hl-red">"SQL injection in auth.ts:42"</span>
 
@@ -1483,7 +1497,7 @@ footer {
       <div class="feature-card reveal">
         <div class="card-marker"><div class="note-head"></div></div>
         <h3 class="card-title">Natural Language Args</h3>
-        <p class="card-desc">No flags to memorise. Say what you want in plain English and the CLI parses intent from natural language arguments.</p>
+        <p class="card-desc">No flags to memorise. Say what you want in plain English and the CLI figures it out.</p>
         <div class="card-example"><span class="hl-gold">/review-orchestra</span> only use claude
 <span class="hl-gold">/review-orchestra</span> fix quality issues too
 <span class="hl-gold">/review-orchestra</span> skip codex
@@ -1621,7 +1635,7 @@ footer {
       <span class="header-line"></span>
     </div>
 
-    <p class="reveal" style="font-size: 0.85rem; color: var(--cream-dim); margin-bottom: 16px;">Create <code style="color: var(--gold);">.review-orchestra/config.json</code> in your project root for per-project config, or <code style="color: var(--gold);">~/.review-orchestra/config.json</code> for global user defaults. Project overrides global. All settings below are optional — defaults are sensible.</p>
+    <p class="reveal" style="font-size: 0.85rem; color: var(--cream-dim); margin-bottom: 16px;">Create <code style="color: var(--gold);">.review-orchestra/config.json</code> in your project root for per-project config, or <code style="color: var(--gold);">~/.review-orchestra/config.json</code> for global user defaults. Project overrides global. All settings below are optional, defaults are sensible.</p>
 
     <!-- Default config -->
     <h3 class="sub-heading reveal">Default config</h3>
@@ -1704,7 +1718,7 @@ footer {
         <span class="config-block-label">Directory structure</span>
         <div class="dir-tree"><span class="hl-dir">.review-orchestra/</span>
 ├── <span class="hl-file">session.json</span>             <span class="hl-comment"># Session state (rounds, reviews, reviewerErrors)</span>
-├── <span class="hl-file">state.lock</span>               <span class="hl-comment"># PID file — concurrent-run prevention</span>
+├── <span class="hl-file">state.lock</span>               <span class="hl-comment"># PID file, prevents concurrent runs</span>
 ├── <span class="hl-file">progress.json</span>            <span class="hl-comment"># Live reviewer status (deleted on round complete)</span>
 ├── <span class="hl-file">round-1-claude-raw.txt</span>   <span class="hl-comment"># Raw stdout, persisted before parse</span>
 ├── <span class="hl-file">round-1-codex-raw.txt</span>    <span class="hl-comment"># Renamed to *.failed on codex subprocess failure</span>
@@ -1744,11 +1758,11 @@ footer {
           <tr><th>Field</th><th>Description</th></tr>
         </thead>
         <tbody>
-          <tr><td>sessionId</td><td>Timestamp-based unique ID (e.g. <code>20260315-143022</code>)</td></tr>
-          <tr><td>status</td><td><code>active</code> (accepting rounds), <code>expired</code> (scope base changed, requires reset), <code>completed</code> (user ended session)</td></tr>
-          <tr><td>scope</td><td>Diff scope at session creation (uncommitted, branch, commit). Detached HEAD produces <code>baseBranch: "detached@&lt;sha7&gt;"</code> rather than the literal <code>"HEAD"</code> so cross-round comparison stays stable.</td></tr>
-          <tr><td>worktreeHash</td><td>SHA-256 over HEAD + staged + unstaged + untracked files. Per-round snapshot for stale detection.</td></tr>
-          <tr><td>rounds[]</td><td>Per-round: <code>phase</code>, <code>reviews</code> (per-reviewer findings + metadata), <code>consolidated</code>, <code>reviewerErrors</code> (preserved across crash recovery), <code>findingsPersisted</code>, timestamps.</td></tr>
+          <tr><td>sessionId</td><td>Unique timestamp-based ID. Used to continue or reset the session.</td></tr>
+          <tr><td>status</td><td><code>active</code>, <code>expired</code> (base branch moved, reset to start fresh), or <code>completed</code>.</td></tr>
+          <tr><td>scope</td><td>Diff scope at session creation: uncommitted changes, branch vs main, or commit range.</td></tr>
+          <tr><td>worktreeHash</td><td>Hash of your working tree. Detects when files change between rounds.</td></tr>
+          <tr><td>rounds[]</td><td>Per-round findings, reviewer failures, and consolidation output. Grows each time you re-review.</td></tr>
         </tbody>
       </table>
     </div>
@@ -1770,15 +1784,11 @@ footer {
 
     <p class="reveal" style="font-size: 0.82rem; color: var(--cream-dim); margin-top: 12px;">Add <code style="color: var(--gold);">.review-orchestra/</code> to <code>.gitignore</code>. The <code style="color: var(--gold);">setup</code> command does this automatically.</p>
 
-    <h3 class="sub-heading reveal">Concurrent runs</h3>
-    <p class="reveal" style="font-size: 0.85rem; color: var(--cream-dim); margin-bottom: 8px;">Two terminals running <code style="color: var(--gold);">review-orchestra review</code> in the same project would trample each other's session. <code style="color: var(--gold);">state.lock</code> prevents this — it stores the holder's PID and uses an atomic-rename release protocol with a post-rename PID re-check, so a recovering process can't accidentally delete another instance's lock. Stale locks (PID gone) are detected via <code>process.kill(pid, 0)</code> and overwritten safely.</p>
+    <h3 class="sub-heading reveal">Run in multiple terminals</h3>
+    <p class="reveal" style="font-size: 0.85rem; color: var(--cream-dim); margin-bottom: 8px;">Kick off review runs in as many terminals as you want. Two runs targeting the same project won't trample each other. A second run while one is active fails fast with a clear error instead of silently clobbering the first session's findings. If a previous run crashed and left the lock behind, the next invocation notices the process is gone and takes over automatically.</p>
 
     <h3 class="sub-heading reveal">Crash recovery</h3>
-    <p class="reveal" style="font-size: 0.85rem; color: var(--cream-dim); margin-bottom: 8px;">If a <code style="color: var(--gold);">review</code> invocation crashes mid-round, the next invocation reads <code>session.json</code>, finds the round in <code>phase: "reviewing"</code> or <code>phase: "consolidating"</code>, and resumes:</p>
-    <ul class="reveal" style="font-size: 0.85rem; color: var(--cream-dim); padding-left: 18px;">
-      <li><strong>reviewing</strong> — re-runs only the reviewers not present in <code>round.reviews</code>, then merges with saved findings. A flake on the remaining reviewer no longer discards the saved work.</li>
-      <li><strong>consolidating</strong> — skips reviewers entirely, restores <code>reviewerErrors</code> from the round, re-runs consolidation. The <code>findingsPersisted</code> flag prevents double-writes to the cross-session JSONL store.</li>
-    </ul>
+    <p class="reveal" style="font-size: 0.85rem; color: var(--cream-dim); margin-bottom: 8px;">Network hiccup, agent timeout, Ctrl+C halfway through: run it again and you pick up where you left off. Reviewers that already finished don't run a second time, their findings are reused. Reviewers that failed get retried. Consolidation and cross-round comparison resume from the point they were interrupted. You never clean up session state yourself.</p>
   </div>
 </section>
 
@@ -1831,7 +1841,7 @@ footer {
       </div>
     </div>
 
-    <p class="reveal" style="font-size: 0.82rem; color: var(--cream-dim); margin-top: 12px;">Config-based reviewers use the <code style="color: var(--gold);">GenericReviewer</code> class, which executes the command template (replacing <code style="color: var(--gold);">{prompt}</code>) and parses the output. The consolidator normalises all reviewer output into the standard findings schema regardless of source format. Reviewers persist their raw stdout to <code style="color: var(--gold);">round-N-&lt;name&gt;-raw.txt</code> via <code>persistRawOutput()</code> before parsing — debug evidence survives parse failures and reviewer crashes.</p>
+    <p class="reveal" style="font-size: 0.82rem; color: var(--cream-dim); margin-top: 12px;">Config-based reviewers execute the command template (replacing <code style="color: var(--gold);">{prompt}</code>) and parse the output. The consolidator normalises all reviewer output into the standard findings schema regardless of source format. Raw reviewer stdout is saved on disk before parsing, so when a reviewer returns malformed output you still have the original to debug against.</p>
   </div>
 </section>
 
