@@ -74,30 +74,35 @@ export function parseArgs(input: string): ParsedArgs {
   if (!input) return result;
   let remaining = input;
 
+  // All natural-language directives below use `(?<=^|\s)` and `(?=\s|$)`
+  // boundaries so they don't match inside quoted path tokens (e.g. a path
+  // like "src/fix everything/foo.ts" must not trigger the stopAt directive).
+  // Lookbehind/lookahead are non-consuming, so the replace targets only the
+  // directive text itself and leaves surrounding whitespace untouched.
+
   // Dry run
-  if (/--dry-run|\bdry run\b/i.test(remaining)) {
+  if (/(?<=^|\s)(?:--dry-run|dry run)(?=\s|$)/i.test(remaining)) {
     result.dryRun = true;
-    remaining = remaining.replace(/--dry-run/g, "").replace(/\bdry run\b/gi, "").trim();
+    remaining = remaining.replace(/(?<=^|\s)(?:--dry-run|dry run)(?=\s|$)/gi, "").trim();
   }
 
   // Threshold: "fix everything" → p3, "fix quality issues too" → p2
-  if (/fix\s+(everything|all)/i.test(remaining)) {
+  if (/(?<=^|\s)fix\s+(everything|all)(?=\s|$)/i.test(remaining)) {
     result.stopAt = "p3";
-    remaining = remaining.replace(/fix\s+(everything|all)/gi, "").trim();
-  } else if (/fix\s+quality/i.test(remaining)) {
+    remaining = remaining.replace(/(?<=^|\s)fix\s+(everything|all)(?=\s|$)/gi, "").trim();
+  } else if (/(?<=^|\s)fix\s+quality(?=\s|$|\s+(issues?|too))/i.test(remaining)) {
     result.stopAt = "p2";
-    remaining = remaining.replace(/fix\s+quality\s*(issues?)?\s*(too)?/gi, "").trim();
+    remaining = remaining.replace(/(?<=^|\s)fix\s+quality(?:\s+issues?)?(?:\s+too)?(?=\s|$)/gi, "").trim();
   }
 
   // Reviewer selection: "skip codex", "only use claude", "only claude"
-  // Constrained to avoid greedy matches — require end-of-string or whitespace boundary
   let skipMatch;
-  while ((skipMatch = remaining.match(/\bskip\s+(\w+)(?=\s|$)/i))) {
+  while ((skipMatch = remaining.match(/(?<=^|\s)skip\s+(\w+)(?=\s|$)/i))) {
     result.disabledReviewers.push(skipMatch[1].toLowerCase());
     remaining = remaining.replace(skipMatch[0], "").trim();
   }
 
-  const onlyMatch = remaining.match(/\bonly\s+(?:use\s+)?(\w+)(?=\s|$)/i);
+  const onlyMatch = remaining.match(/(?<=^|\s)only\s+(?:use\s+)?(\w+)(?=\s|$)/i);
   if (onlyMatch) {
     result.onlyReviewer = onlyMatch[1].toLowerCase();
     remaining = remaining.replace(onlyMatch[0], "").trim();
@@ -107,17 +112,16 @@ export function parseArgs(input: string): ParsedArgs {
   // Model names are passed through verbatim — the reviewer CLIs resolve them.
   // Loop to handle multiple model assignments in one input.
   let modelForMatch;
-  while ((modelForMatch = remaining.match(/use\s+([\w.-]+)\s+for\s+(\w+)/i))) {
+  while ((modelForMatch = remaining.match(/(?<=^|\s)use\s+([\w.-]+)\s+for\s+(\w+)(?=\s|$)/i))) {
     result.models[modelForMatch[2].toLowerCase()] = modelForMatch[1];
     remaining = remaining.replace(modelForMatch[0], "").trim();
   }
   // Bare model name without "for <reviewer>" — infer target from model name.
   // Loop to consume multiple bare model tokens (e.g. "use opus use o3").
   // The negative lookahead avoids capturing the head of a path token like
-  // "use src/file.ts" (which would model="src"); a `\b` prefix prevents
-  // matching inside another word like "abuse".
+  // "use src/file.ts" (which would model="src").
   let modelMatch;
-  while ((modelMatch = remaining.match(/\buse\s+([\w.-]+)(?![/\\\w.-])/i))) {
+  while ((modelMatch = remaining.match(/(?<=^|\s)use\s+([\w.-]+)(?![/\\\w.-])/i))) {
     const modelName = modelMatch[1];
     const target = inferReviewerForModel(modelName);
     result.models[target] = modelName;

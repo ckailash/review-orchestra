@@ -251,4 +251,41 @@ describe("parseArgs", () => {
     const result = parseArgs(wrap('src/odd\\"name/file.ts'));
     expect(result.paths).toEqual(['src/odd\\"name/file.ts']);
   });
+
+  // --- Directive-substring isolation (r1-f-009) ---
+  // parseArgs's natural-language directive matchers (`fix everything`,
+  // `skip X`, `only X`, `use X for Y`, `dry run`) currently scan the
+  // raw input string before tokenization, so they can match inside
+  // quoted path segments. These tests pin the desired behavior:
+  // directives inside quoted args must NOT trigger.
+
+  it("does not treat 'fix everything' inside a quoted path as a stopAt directive", () => {
+    const result = parseArgs(wrap("src/fix everything/foo.ts"));
+    expect(result.stopAt).toBeUndefined();
+    expect(result.paths).toEqual(["src/fix everything/foo.ts"]);
+  });
+
+  it("does not treat 'skip codex' inside a quoted path as a reviewer skip", () => {
+    const result = parseArgs(wrap("src/skip codex/foo.ts"));
+    expect(result.disabledReviewers).toEqual([]);
+    expect(result.paths).toEqual(["src/skip codex/foo.ts"]);
+  });
+
+  it("does not treat 'only claude' inside a quoted path as an onlyReviewer directive", () => {
+    const result = parseArgs(wrap("src/only claude/foo.ts"));
+    expect(result.onlyReviewer).toBeUndefined();
+    expect(result.paths).toEqual(["src/only claude/foo.ts"]);
+  });
+
+  it("does not treat 'use opus for claude' inside a quoted path as a model directive", () => {
+    const result = parseArgs(wrap("src/use opus for claude/foo.ts"));
+    expect(result.models).toEqual({});
+    expect(result.paths).toEqual(["src/use opus for claude/foo.ts"]);
+  });
+
+  it("does not treat 'dry run' inside a quoted path as a dryRun directive", () => {
+    const result = parseArgs(wrap("src/dry run/foo.ts"));
+    expect(result.dryRun).toBe(false);
+    expect(result.paths).toEqual(["src/dry run/foo.ts"]);
+  });
 });
