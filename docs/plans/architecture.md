@@ -5,7 +5,7 @@
 A Claude Code skill that runs multiple AI reviewers (Claude + Codex by default) in parallel, consolidates findings, and presents them to the user. The orchestrator Claude fixes code directly with user guidance in a supervised loop.
 
 **Status:** Alpha
-**Updated:** 2026-04-12
+**Updated:** 2026-04-14
 
 ---
 
@@ -54,12 +54,13 @@ review-orchestra/
 ├── src/
 │   ├── orchestrator.ts               # Main orchestration: preflight → reviewers → consolidate → return ReviewResult
 │   ├── reviewers/
-│   │   ├── types.ts                  # Reviewer interface
+│   │   ├── types.ts                  # Reviewer interface (+ ReviewerCallContext)
 │   │   ├── claude.ts                 # Claude headless reviewer
 │   │   ├── codex.ts                  # Codex headless reviewer
-│   │   ├── command.ts                # Command template parsing
+│   │   ├── command.ts                # Command template parsing (handles \" and \\ escapes inside quoted args)
 │   │   ├── prompt.ts                 # Review prompt builder
-│   │   └── index.ts                  # Registry / factory
+│   │   ├── raw-output.ts             # persistRawOutput — writes reviewer stdout to round-N-<name>-raw.txt before parsing
+│   │   └── index.ts                  # Registry / factory (GenericReviewer for custom reviewers)
 │   ├── consolidator.ts              # Dedup, classify, merge findings
 │   ├── finding-comparison.ts        # Finding comparison (heuristic + LLM)
 │   ├── findings-store.ts            # Persistent cross-session finding storage
@@ -137,21 +138,26 @@ During scope detection, recent commit messages are captured for developer intent
 These are stored as a `commitMessages?: string` field on `DiffScope` and included in the review prompt under a "Recent Commits (developer intent)" section.
 
 #### Phase 2: Parallel Review
-The orchestrator launches all configured reviewers in parallel:
+The orchestrator spawns all enabled reviewers concurrently via Node's `Promise.allSettled`. Each reviewer subprocess:
 
 ```bash
-# Claude (default reviewer 1)
+# Claude (default reviewer 1) — prompt streamed to stdin
 claude -p - \
-  --allowed-tools "Read,Grep,Glob,Bash" \
-  --output-format json > $STATE_DIR/claude-round-N.json &
+  --allowedTools "Read,Grep,Glob,Bash" \
+  --output-format json
 
-# Codex (default reviewer 2)
+# Codex (default reviewer 2) — prompt streamed to stdin, output written to a temp file
 codex exec - \
-  --output-last-message $STATE_DIR/codex-round-N.json \
-  --json &
-
-wait  # Both finish
+  --output-last-message $STATE_DIR/codex-output-<ts>.json
 ```
+
+Each reviewer writes its raw stdout to `$STATE_DIR/round-N-<reviewer>-raw.txt` via `persistRawOutput()` **before** attempting to parse. If parsing fails, the raw file stays on disk (renamed to `*.raw.txt` for diagnosis); if Codex's subprocess fails, its temp output is renamed to `*.failed`. This is deliberate: the previous design only saved evidence on the success path, hiding the most useful diagnostic artefact whenever a reviewer crashed or returned malformed JSON.
+
+Reviewer status is mirrored to `$STATE_DIR/progress.json` in real time: `{ status: "running"|"done"|"error", findingsCount, elapsedMs }` per reviewer. The file is deleted when the round completes.
+
+Reviewer failures are persisted to `Round.reviewerErrors` in `session.json` so a later crash that lands the orchestrator in the `consolidating` phase can still surface the original failures on recovery instead of silently reporting zero errors. The recovery branch passes `tolerateAllFailure: true` to `runReviews`, so a flake on the only-remaining reviewer doesn't discard saved findings from earlier in the round.
+
+Concurrent invocations are blocked by `$STATE_DIR/state.lock` (PID file with atomic-rename release; live processes detected via `process.kill(pid, 0)` with `ESRCH` treated as stale).
 
 #### Phase 3: Consolidation
 The CLI consolidates both review outputs:
@@ -163,7 +169,7 @@ The CLI consolidates both review outputs:
 - Compares against previous round's findings: tags current findings as `new` or `persisting`, and produces a separate `resolvedFindings` list
 - Records worktree hash for stale-detection
 - Produces a single consolidated findings list as JSON
-- Writes to `$STATE_DIR/consolidated-round-N.json`
+- Stores the result in `session.json` under `rounds[currentRound].consolidated` (per-round artifacts live inside the session file rather than as separate files)
 
 ### Supervised Flow
 
@@ -233,11 +239,25 @@ During consolidation, each finding is checked against the diff hunks. If the fil
 ### TypeScript Interface
 
 ```typescript
+interface ReviewerCallContext {
+  roundNumber: number; // used to write round-N-<name>-raw.txt before parsing
+}
+
 interface Reviewer {
   name: string;
-  review(prompt: string, scope: DiffScope): Promise<Finding[]>;
+  review(
+    prompt: string,
+    scope: DiffScope,
+    context: ReviewerCallContext,
+  ): Promise<{
+    findings: Finding[];
+    rawOutput: string;
+    elapsedMs?: number;
+  }>;
 }
 ```
+
+The third argument was added so reviewers can persist their raw stdout to disk *before* parsing. Implementers should call `persistRawOutput(stateDir, roundNumber, reviewerName, raw)` (from `src/reviewers/raw-output.ts`) immediately after the spawn returns.
 
 ### Configuration (config/default.json)
 
@@ -383,24 +403,41 @@ Resolved findings (in previous round but not current) are returned in a separate
 
 **Finding comparison:** Findings are compared across rounds using two methods. The default is LLM-based semantic matching via Claude Haiku, which spawns a headless `claude -p` call with a structured comparison prompt. This handles renamed files, shifted line numbers, and reworded descriptions. Falls back to heuristic matching (`file + title.toLowerCase()`) on LLM failure or when configured with `method: "heuristic"`. The `[new]`/`[persisting]` tags are presentation aids for user orientation, not policy inputs.
 
+### ReviewResult (CLI → skill contract)
+
+The CLI prints a single `ReviewResult` JSON to stdout once a round completes. The skill consumes this directly:
+
+```typescript
+interface ReviewResult {
+  sessionId: string;
+  round: number;
+  findings: Finding[];                                       // current round, with new/persisting status
+  resolvedFindings: Finding[];                               // previous-round findings missing this round
+  reviewerErrors: Array<{ reviewer: string; error: string }>; // failures observed this round
+  worktreeHash: string;                                      // for stale detection on next invocation
+  scope: DiffScope;                                          // resolved scope (paths, baseBranch, description)
+  thresholds: ThresholdConfig;                               // active stopAt — skill renders fix-recommendation band from this
+  metadata: ReviewMetadata;                                  // sessionId, round, files_reviewed, diff_scope, reviewer set
+}
+```
+
+`thresholds` is included in the result so the skill can render its "default recommendation" band (`p0` / `p1` / `p2` / `p3`) from a single source of truth instead of re-deriving it from CLI args. The user can still override by selecting individual finding IDs in step 3 of the supervised flow.
+
 ## State & Round History
 
-All artifacts are stored in `.review-orchestra/` in the project root:
+All artifacts are stored in `.review-orchestra/` in the project root. Reviewer outputs are flat files (no per-round subdirectories) so debug evidence survives parse failures and crashes:
 
 ```
 .review-orchestra/
-├── session.json                      # Current session state (ID, scope, rounds, hashes)
-├── round-1/
-│   ├── claude-review.json
-│   ├── codex-review.json
-│   └── consolidated.json
-└── round-2/
-    ├── claude-review.json
-    ├── codex-review.json
-    └── consolidated.json
+├── session.json                      # Session state (sessionId, status, scope, rounds[])
+├── state.lock                        # PID file for concurrent-run prevention (deleted on release)
+├── progress.json                     # Live reviewer status during a run (deleted on round complete)
+├── round-1-claude-raw.txt            # Raw stdout, written before parse — preserved on parse failure
+├── round-1-codex-raw.txt             # On codex subprocess failure renamed to *.failed
+└── round-2-claude-raw.txt
 ```
 
-Everything is kept. Never auto-deleted. Users can `rm -rf .review-orchestra/` or `review-orchestra reset` when done. Add `.review-orchestra/` to `.gitignore`.
+Everything is kept. Never auto-deleted. Users can `rm -rf .review-orchestra/` or `review-orchestra reset` when done. `setup` adds `.review-orchestra/` to `.gitignore` automatically.
 
 Session state (`session.json`) structure:
 
@@ -408,40 +445,64 @@ Session state (`session.json`) structure:
 {
   "sessionId": "20260315-143022",
   "status": "active",
-  "scope": { "type": "branch", "base": "main", "diff": "..." },
+  "scope": {
+    "type": "branch",
+    "baseBranch": "main",
+    "description": "branch feat/auth vs main",
+    "pathFilters": []
+  },
   "currentRound": 2,
   "worktreeHash": "abc123",
   "rounds": [
     {
       "number": 1,
+      "phase": "complete",
       "worktreeHash": "def456",
-      "findings": [ ... ],
-      "startedAt": "2026-03-15T14:30:22Z"
-    },
-    {
-      "number": 2,
-      "worktreeHash": "abc123",
-      "findings": [ ... ],
-      "startedAt": "2026-03-15T14:35:10Z"
+      "reviews": {
+        "claude": { "findings": [], "metadata": { } },
+        "codex":  { "findings": [], "metadata": { } }
+      },
+      "consolidated": [],
+      "reviewerErrors": [],
+      "findingsPersisted": true,
+      "startedAt": "2026-03-15T14:30:22Z",
+      "completedAt": "2026-03-15T14:32:11Z"
     }
   ],
-  "startedAt": "2026-03-15T14:30:22Z"
+  "startedAt": "2026-03-15T14:30:22Z",
+  "completedAt": null
 }
 ```
 
 Key fields:
 - `sessionId` — timestamp-based unique ID
-- `status` — `active` (accepting new rounds), `expired` (scope base changed, requires reset), or `completed` (user explicitly ended session)
-- `scope` — the diff scope detected at session creation
-- `currentRound` — current round number
-- `worktreeHash` — per-round snapshot for stale-detection. Covers HEAD, staged changes, unstaged changes, and untracked files (see `docs/plans/archive/supervised-flow.md` for precise definition)
-- `rounds[]` — per-round artifacts: round number, worktree hash, findings, timestamp
-- `startedAt` — session creation timestamp
+- `status` — `active` (accepting new rounds), `expired` (scope base changed, requires reset), or `completed`
+- `scope` — diff scope at session creation; includes `pathFilters` so cross-round comparison knows the user's intent. Detached HEAD produces `baseBranch: "detached@<sha7>"` rather than the literal `"HEAD"` so the value is a stable identifier.
+- `currentRound` — most recent round number
+- `worktreeHash` — SHA-256 over HEAD + staged + unstaged + untracked files; per-round snapshot for stale detection
+- `rounds[]` — per-round artifacts:
+  - `phase` — `reviewing` | `consolidating` | `complete` (drives crash-recovery routing)
+  - `reviews` — per-reviewer findings + metadata for reviewers that succeeded
+  - `consolidated` — post-consolidation findings (with round-scoped IDs and `new`/`persisting` status)
+  - `reviewerErrors` — failed-reviewer records (`{ reviewer, error }`); persisted so recovery from `consolidating` doesn't silently lose them
+  - `findingsPersisted` — flag preventing the JSONL store double-append on crash recovery
+- `startedAt` / `completedAt` — session timestamps
 
 Session lifecycle:
 - `review-orchestra review` → creates or continues session, runs reviewers + consolidation, returns findings
 - `review-orchestra reset` → clears the session (equivalent to `rm -rf .review-orchestra/`)
 - Session auto-expires if the scope base changes (e.g., new commits on main) — stale session warning, user must reset and start fresh. No force-continue: old findings are unreliable when the base has moved.
+
+### Crash recovery
+
+If a `review` invocation crashes, the next invocation reads `session.json`, finds the round in `phase: "reviewing"` or `phase: "consolidating"`, and resumes:
+
+- **`reviewing`** — reruns only the reviewers not present in `round.reviews`, then merges with the saved findings. The recovery branch passes `tolerateAllFailure: true` to `runReviews` so a transient flake on the remaining reviewer doesn't discard saved findings.
+- **`consolidating`** — skips reviewers entirely, restores `reviewerErrors` from the round, and re-runs consolidation + finding comparison + `appendFindings`. The `findingsPersisted` flag prevents double-writes to the cross-session JSONL store.
+
+### Concurrent-run prevention
+
+`acquireLock` writes the current PID to `state.lock` via `writeFileSync(..., { flag: "wx" })` (atomic create-or-fail). If the lock exists, it checks the holder via `process.kill(pid, 0)` — `ESRCH` means stale (overwrite), any other outcome is treated as a live lock. `releaseLock` uses an atomic-rename + post-rename PID re-check protocol to close the TOCTOU window between the PID check and the unlink.
 
 Finding IDs are round-scoped for new findings (`r1-f-001`, `r2-f-003`) to prevent collisions. Persisting findings keep their original ID across rounds — if `r1-f-007` is still present in round 2, it stays `r1-f-007 [persisting]`, not re-numbered. The round prefix tells you *when the finding was first detected*, not which round you're looking at.
 

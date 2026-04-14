@@ -1703,15 +1703,12 @@ footer {
       <div class="reveal">
         <span class="config-block-label">Directory structure</span>
         <div class="dir-tree"><span class="hl-dir">.review-orchestra/</span>
-├── <span class="hl-file">session.json</span>          <span class="hl-comment"># Session state</span>
-├── <span class="hl-dir">round-1/</span>
-│   ├── <span class="hl-file">claude-review.json</span>
-│   ├── <span class="hl-file">codex-review.json</span>
-│   └── <span class="hl-file">consolidated.json</span>
-└── <span class="hl-dir">round-2/</span>
-    ├── <span class="hl-file">claude-review.json</span>
-    ├── <span class="hl-file">codex-review.json</span>
-    └── <span class="hl-file">consolidated.json</span></div>
+├── <span class="hl-file">session.json</span>             <span class="hl-comment"># Session state (rounds, reviews, reviewerErrors)</span>
+├── <span class="hl-file">state.lock</span>               <span class="hl-comment"># PID file — concurrent-run prevention</span>
+├── <span class="hl-file">progress.json</span>            <span class="hl-comment"># Live reviewer status (deleted on round complete)</span>
+├── <span class="hl-file">round-1-claude-raw.txt</span>   <span class="hl-comment"># Raw stdout, persisted before parse</span>
+├── <span class="hl-file">round-1-codex-raw.txt</span>    <span class="hl-comment"># Renamed to *.failed on codex subprocess failure</span>
+└── <span class="hl-file">round-2-claude-raw.txt</span></div>
       </div>
 
       <!-- Session state -->
@@ -1722,15 +1719,18 @@ footer {
   <span class="hl-key">"status"</span>: <span class="hl-str">"active"</span>,
   <span class="hl-key">"scope"</span>: {
     <span class="hl-key">"type"</span>: <span class="hl-str">"branch"</span>,
-    <span class="hl-key">"base"</span>: <span class="hl-str">"main"</span>
+    <span class="hl-key">"baseBranch"</span>: <span class="hl-str">"main"</span>,
+    <span class="hl-key">"description"</span>: <span class="hl-str">"branch feat/auth vs main"</span>
   },
   <span class="hl-key">"currentRound"</span>: 2,
   <span class="hl-key">"worktreeHash"</span>: <span class="hl-str">"abc123"</span>,
   <span class="hl-key">"rounds"</span>: [
     { <span class="hl-key">"number"</span>: 1,
-      <span class="hl-key">"worktreeHash"</span>: <span class="hl-str">"def456"</span> },
-    { <span class="hl-key">"number"</span>: 2,
-      <span class="hl-key">"worktreeHash"</span>: <span class="hl-str">"abc123"</span> }
+      <span class="hl-key">"phase"</span>: <span class="hl-str">"complete"</span>,
+      <span class="hl-key">"reviews"</span>: { <span class="hl-key">"claude"</span>: { <span class="hl-comment">"..."</span> } },
+      <span class="hl-key">"consolidated"</span>: [<span class="hl-comment">"..."</span>],
+      <span class="hl-key">"reviewerErrors"</span>: [],
+      <span class="hl-key">"worktreeHash"</span>: <span class="hl-str">"def456"</span> }
   ]
 }</div>
       </div>
@@ -1746,9 +1746,9 @@ footer {
         <tbody>
           <tr><td>sessionId</td><td>Timestamp-based unique ID (e.g. <code>20260315-143022</code>)</td></tr>
           <tr><td>status</td><td><code>active</code> (accepting rounds), <code>expired</code> (scope base changed, requires reset), <code>completed</code> (user ended session)</td></tr>
-          <tr><td>scope</td><td>Diff scope detected at session creation (uncommitted, branch, PR)</td></tr>
+          <tr><td>scope</td><td>Diff scope at session creation (uncommitted, branch, commit). Detached HEAD produces <code>baseBranch: "detached@&lt;sha7&gt;"</code> rather than the literal <code>"HEAD"</code> so cross-round comparison stays stable.</td></tr>
           <tr><td>worktreeHash</td><td>SHA-256 over HEAD + staged + unstaged + untracked files. Per-round snapshot for stale detection.</td></tr>
-          <tr><td>rounds[]</td><td>Per-round artifacts: round number, worktree hash, findings, timestamp</td></tr>
+          <tr><td>rounds[]</td><td>Per-round: <code>phase</code>, <code>reviews</code> (per-reviewer findings + metadata), <code>consolidated</code>, <code>reviewerErrors</code> (preserved across crash recovery), <code>findingsPersisted</code>, timestamps.</td></tr>
         </tbody>
       </table>
     </div>
@@ -1769,6 +1769,16 @@ footer {
     </div>
 
     <p class="reveal" style="font-size: 0.82rem; color: var(--cream-dim); margin-top: 12px;">Add <code style="color: var(--gold);">.review-orchestra/</code> to <code>.gitignore</code>. The <code style="color: var(--gold);">setup</code> command does this automatically.</p>
+
+    <h3 class="sub-heading reveal">Concurrent runs</h3>
+    <p class="reveal" style="font-size: 0.85rem; color: var(--cream-dim); margin-bottom: 8px;">Two terminals running <code style="color: var(--gold);">review-orchestra review</code> in the same project would trample each other's session. <code style="color: var(--gold);">state.lock</code> prevents this — it stores the holder's PID and uses an atomic-rename release protocol with a post-rename PID re-check, so a recovering process can't accidentally delete another instance's lock. Stale locks (PID gone) are detected via <code>process.kill(pid, 0)</code> and overwritten safely.</p>
+
+    <h3 class="sub-heading reveal">Crash recovery</h3>
+    <p class="reveal" style="font-size: 0.85rem; color: var(--cream-dim); margin-bottom: 8px;">If a <code style="color: var(--gold);">review</code> invocation crashes mid-round, the next invocation reads <code>session.json</code>, finds the round in <code>phase: "reviewing"</code> or <code>phase: "consolidating"</code>, and resumes:</p>
+    <ul class="reveal" style="font-size: 0.85rem; color: var(--cream-dim); padding-left: 18px;">
+      <li><strong>reviewing</strong> — re-runs only the reviewers not present in <code>round.reviews</code>, then merges with saved findings. A flake on the remaining reviewer no longer discards the saved work.</li>
+      <li><strong>consolidating</strong> — skips reviewers entirely, restores <code>reviewerErrors</code> from the round, re-runs consolidation. The <code>findingsPersisted</code> flag prevents double-writes to the cross-session JSONL store.</li>
+    </ul>
   </div>
 </section>
 
@@ -1796,8 +1806,13 @@ footer {
   <span class="hl-key">name</span>: <span class="hl-str">string</span>;
   <span class="hl-key">review</span>(
     prompt: <span class="hl-str">string</span>,
-    scope: DiffScope
-  ): Promise&lt;Finding[]&gt;;
+    scope: DiffScope,
+    context: ReviewerCallContext
+  ): Promise&lt;{
+    findings: Finding[];
+    rawOutput: <span class="hl-str">string</span>;
+    elapsedMs?: <span class="hl-str">number</span>;
+  }&gt;;
 }</div>
       </div>
 
@@ -1816,7 +1831,7 @@ footer {
       </div>
     </div>
 
-    <p class="reveal" style="font-size: 0.82rem; color: var(--cream-dim); margin-top: 12px;">Config-based reviewers use the <code style="color: var(--gold);">GenericReviewer</code> class, which executes the command template (replacing <code style="color: var(--gold);">{prompt}</code>) and parses the output. The consolidator normalises all reviewer output into the standard findings schema regardless of source format.</p>
+    <p class="reveal" style="font-size: 0.82rem; color: var(--cream-dim); margin-top: 12px;">Config-based reviewers use the <code style="color: var(--gold);">GenericReviewer</code> class, which executes the command template (replacing <code style="color: var(--gold);">{prompt}</code>) and parses the output. The consolidator normalises all reviewer output into the standard findings schema regardless of source format. Reviewers persist their raw stdout to <code style="color: var(--gold);">round-N-&lt;name&gt;-raw.txt</code> via <code>persistRawOutput()</code> before parsing — debug evidence survives parse failures and reviewer crashes.</p>
   </div>
 </section>
 

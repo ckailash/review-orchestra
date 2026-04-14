@@ -27,13 +27,11 @@ Two gaps that block trust in the system:
 └── learnings.md                  # distilled rules, LLM-generated, human-reviewed
 
 <project>/.review-orchestra/      # project-scope (per-session review artifacts, existing)
-├── session.json                  # current session state
-├── round-1/
-│   ├── claude-review.json
-│   ├── codex-review.json
-│   └── consolidated.json
-└── round-2/
-    └── ...
+├── session.json                  # current session state (includes per-round reviews + consolidated)
+├── state.lock                    # PID file for concurrent-run prevention
+├── progress.json                 # live reviewer status (deleted on round complete)
+├── round-1-claude-raw.txt        # raw reviewer stdout, persisted before parsing
+└── round-1-codex-raw.txt
 ```
 
 ### Scope: user-level by default
@@ -156,7 +154,7 @@ The CLI already emits status to stderr:
 
 The uplift review proposed a run visualizer as Feature 3. Implementation is deferred to post-release, but the data contract is defined now so the artifact formats remain stable.
 
-**Rationale for deferral:** Supervised sessions are short (typically 1-3 rounds) and low-artifact. The user sees findings in conversation after each round, decides what to fix, and re-reviews. The session summary in SKILL.md Step 7 provides the round-over-round narrative. A standalone visualizer adds minimal value today over stderr output (Feature 2), the SKILL.md session summary, and the artifacts already saved in `.review-orchestra/round-N/`.
+**Rationale for deferral:** Supervised sessions are short (typically 1-3 rounds) and low-artifact. The user sees findings in conversation after each round, decides what to fix, and re-reviews. The session summary in SKILL.md Step 7 provides the round-over-round narrative. A standalone visualizer adds minimal value today over stderr output (Feature 2), the SKILL.md session summary, and the artifacts already saved in `.review-orchestra/`.
 
 **When to build:** When supervised sessions regularly exceed 3-4 rounds, or when users want to compare sessions across time ("how did this week's reviews compare to last week's?").
 
@@ -168,12 +166,11 @@ The visualizer reads two data sources, both already produced by Features 1 and 2
 
 | File | What it provides |
 |------|-----------------|
-| `session.json` | Session ID, scope, round count, timestamps, worktree hashes |
-| `round-N/consolidated.json` | Per-round findings with IDs, severity, status (`new`/`persisting`), reviewer attribution |
-| `round-N/claude-review.json` | Raw Claude reviewer output (per-reviewer breakdown) |
-| `round-N/codex-review.json` | Raw Codex reviewer output |
-| `summary.json` | Final session summary (rounds completed, findings fixed/skipped/remaining) |
+| `session.json` | Session ID, scope, round count, timestamps, worktree hashes, per-round `reviews`, `consolidated`, and `reviewerErrors` |
+| `round-N-<reviewer>-raw.txt` | Raw reviewer stdout, persisted before parsing — preserved on parse failure as `*.raw.txt` and on codex subprocess failure as `*.failed` |
 | `progress.json` | Within-round reviewer progress (transient — only present during active review) |
+| `state.lock` | PID file for concurrent-run prevention (transient — present only while a `review` invocation is running) |
+| `summary.json` | Final session summary (rounds completed, findings fixed/skipped/remaining) — produced by the visualizer, not by the CLI |
 
 **2. Cross-project findings** (`~/.review-orchestra/findings.jsonl`):
 - One line per finding with project, session, round, status, `resolved_in_round`

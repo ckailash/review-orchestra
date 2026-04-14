@@ -103,22 +103,21 @@ The user controls the loop at every step. Escalation is implicit: the user sees 
 
 ### Session artifacts
 
-All round data is stored in `.review-orchestra/` in the project root:
+All session data lives in `.review-orchestra/` in the project root. Reviewer outputs are persisted as flat files (no per-round subdirectories) so debug evidence survives parse failures and crashes:
 
 ```
 .review-orchestra/
-├── session.json                      # Current session state (ID, scope, rounds, hashes)
-├── round-1/
-│   ├── claude-review.json
-│   ├── codex-review.json
-│   └── consolidated.json
-└── round-2/
-    ├── claude-review.json
-    ├── codex-review.json
-    └── consolidated.json
+├── session.json                      # Session state (sessionId, status, scope, rounds[], reviews, consolidated, reviewerErrors)
+├── state.lock                        # PID file for concurrent-run prevention
+├── progress.json                     # Live reviewer status during a run (deleted on round complete)
+├── round-1-claude-raw.txt            # Raw stdout from each reviewer, written before parsing
+├── round-1-codex-raw.txt             # On parse failure renamed to *.raw.txt; on codex failure renamed *.failed
+└── round-2-claude-raw.txt
 ```
 
-Everything is kept. Never auto-deleted. Users can `rm -rf .review-orchestra/` or `review-orchestra reset` when done. Add `.review-orchestra/` to `.gitignore`.
+Everything is kept. Never auto-deleted. Users can `rm -rf .review-orchestra/` or `review-orchestra reset` when done. `setup` adds `.review-orchestra/` to `.gitignore` automatically.
+
+Concurrent runs of `review-orchestra review` in the same project are blocked by `state.lock` (atomic-rename release protocol with PID re-check) so two terminals don't trample each other's session.
 
 #### Session state (`session.json`)
 
@@ -126,40 +125,43 @@ Everything is kept. Never auto-deleted. Users can `rm -rf .review-orchestra/` or
 {
   "sessionId": "20260315-143022",
   "status": "active",
-  "scope": { "type": "branch", "base": "main", "diff": "..." },
+  "scope": { "type": "branch", "baseBranch": "main", "description": "branch feat/auth vs main" },
   "currentRound": 2,
   "worktreeHash": "abc123",
   "rounds": [
     {
       "number": 1,
+      "phase": "complete",
       "worktreeHash": "def456",
-      "findings": [ "..." ],
-      "startedAt": "2026-03-15T14:30:22Z"
-    },
-    {
-      "number": 2,
-      "worktreeHash": "abc123",
-      "findings": [ "..." ],
-      "startedAt": "2026-03-15T14:35:10Z"
+      "reviews": { "claude": { "findings": [], "metadata": { } }, "codex": { } },
+      "consolidated": [],
+      "reviewerErrors": [],
+      "findingsPersisted": true,
+      "startedAt": "2026-03-15T14:30:22Z",
+      "completedAt": "2026-03-15T14:32:11Z"
     }
   ],
-  "startedAt": "2026-03-15T14:30:22Z"
+  "startedAt": "2026-03-15T14:30:22Z",
+  "completedAt": null
 }
 ```
 
 Key fields:
 - `sessionId` — timestamp-based unique ID (e.g. `20260315-143022`)
-- `status` — `active` (accepting new rounds), `expired` (scope base changed, requires reset), or `completed` (user explicitly ended session)
-- `scope` — the diff scope detected at session creation
-- `currentRound` — current round number
-- `worktreeHash` — per-round snapshot for stale-detection (SHA-256 over HEAD, staged changes, unstaged changes, and untracked files)
-- `rounds[]` — per-round artifacts: round number, worktree hash, findings, timestamp
+- `status` — `active`, `expired` (scope base changed, requires reset), or `completed`
+- `scope` — diff scope detected at session creation (with `pathFilters` if any)
+- `currentRound` — most recent round number
+- `worktreeHash` — SHA-256 over HEAD + staged + unstaged + untracked files; per-round snapshot for stale detection
+- `rounds[]` — per-round artifacts: `phase`, `reviews` (per-reviewer findings + metadata), `consolidated`, `reviewerErrors` (preserved across crash recovery), `findingsPersisted`, timestamps
 - `startedAt` — session creation timestamp
 
 Session lifecycle:
 - `review-orchestra review` → creates or continues session, runs reviewers + consolidation, returns findings
 - `review-orchestra reset` → clears the session (equivalent to `rm -rf .review-orchestra/`)
-- Session auto-expires if the scope base changes (e.g., new commits on main) — stale session warning, user must reset and start fresh
+- Session auto-expires if the scope base changes (e.g., new commits on main) — stale session error, user must reset and start fresh
+- Detached HEAD: `baseBranch` becomes `detached@<sha7>` (not the literal `"HEAD"`) so cross-round comparison stays stable
+
+Crash recovery: if a round was interrupted mid-`reviewing` or mid-`consolidating`, the next `review` invocation resumes from the persisted phase. Saved reviewer findings and reviewer errors carry forward.
 
 ## Configuration
 
@@ -222,12 +224,13 @@ review-orchestra/
 ├── src/
 │   ├── orchestrator.ts               # Main orchestration: preflight → reviewers → consolidate → return ReviewResult
 │   ├── reviewers/
-│   │   ├── types.ts                  # Reviewer interface
+│   │   ├── types.ts                  # Reviewer interface (+ ReviewerCallContext)
 │   │   ├── claude.ts                 # Claude headless reviewer
 │   │   ├── codex.ts                  # Codex headless reviewer
-│   │   ├── command.ts                # Command template parsing
+│   │   ├── command.ts                # Command template parsing (handles \" and \\ escapes)
 │   │   ├── prompt.ts                 # Review prompt builder
-│   │   └── index.ts                  # Registry / factory
+│   │   ├── raw-output.ts             # persistRawOutput helper — saves reviewer stdout before parsing
+│   │   └── index.ts                  # Registry / factory (GenericReviewer for custom reviewers)
 │   ├── consolidator.ts              # Dedup, classify, merge findings
 │   ├── findings-store.ts            # Persistent cross-session finding storage (~/.review-orchestra/findings.jsonl)
 │   ├── fuzzy-match.ts               # Fuzzy matching for cross-reviewer dedup (tokenize, Jaccard similarity, isFuzzyMatch)
@@ -272,7 +275,11 @@ Any CLI tool that accepts a prompt and produces output can be a reviewer. Implem
 // src/reviewers/types.ts
 interface Reviewer {
   name: string;
-  review(prompt: string, scope: DiffScope): Promise<Finding[]>;
+  review(
+    prompt: string,
+    scope: DiffScope,
+    context: ReviewerCallContext, // { roundNumber } — used to write round-N-<name>-raw.txt before parsing
+  ): Promise<{ findings: Finding[]; rawOutput: string; elapsedMs?: number }>;
 }
 ```
 
